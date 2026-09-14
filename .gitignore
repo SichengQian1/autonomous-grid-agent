@@ -1,0 +1,27 @@
+/all/
+/local/
+/logs/
+/replays/
+/tmp/
+/artifacts/
+
+# Local official/reference files at the repository root
+/*.pdf
+/*.zip
+/*.tar.gz
+/任务书*.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
