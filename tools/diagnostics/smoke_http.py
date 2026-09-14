@@ -6,6 +6,7 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,12 +16,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", required=True, type=int)
     parser.add_argument("--timeout", default=2.0, type=float)
+    parser.add_argument("--scenario", choices=("minimal", "day", "night"), default="minimal")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    request_body = json.dumps({"roundNo": 1}).encode("utf-8")
+    sample = {"roundNo": 1}
+    if args.scenario != "minimal":
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from tests.scenarios import arena, robot
+        sample = arena(71 if args.scenario == "night" else 1, armed=args.scenario == "night")
+        if args.scenario == "night":
+            sample["robot"]["roles"] = [robot(1000, 10, 15), robot(1001, 10, 14)]
+    request_body = json.dumps(sample).encode("utf-8")
     request = urllib.request.Request(
         f"http://{args.host}:{args.port}/",
         data=request_body,
@@ -46,6 +55,13 @@ def main() -> int:
         payload.get("roleCommandMap"), dict
     ):
         print("response does not contain a roleCommandMap object", file=sys.stderr)
+        return 1
+
+    if args.scenario != "minimal" and not payload["roleCommandMap"]:
+        print("strategy returned no actions for the synthetic scenario", file=sys.stderr)
+        return 1
+    if args.scenario == "night" and not any(a.get("action") == "attack" for a in payload["roleCommandMap"].values()):
+        print("night scenario did not produce an attack", file=sys.stderr)
         return 1
 
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))

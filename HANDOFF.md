@@ -53,10 +53,91 @@ After a change:
 - `solution/protocol.py`: validated response serialization and safe fallback.
 - `solution/state.py`: cross-turn feedback/news state and LLM call budget.
 
-The competitive planner is intentionally empty. The service currently returns a
-valid empty command map after parsing and ingesting each turn.
+The baseline planner is enabled. See `docs/baseline.md` for strategy behavior,
+configuration, validation evidence and remaining assumptions. New modules separate
+navigation, defense, combat, economy, task handling and shared planning context.
 
 ## Change Log
+
+### 2026-09-14 - Five baseline audit fixes
+
+Changes and reasons:
+
+- Night supply release counts only admissible attacks and is rechecked after
+  committing commands, so blocked or rejected fire cannot justify a departure.
+- Controller assignment considers weapon subsets after casualties and ranks
+  joint effective fire before readiness and travel cost. A cooling high-level
+  weapon no longer displaces a usable adjacent weapon solely due to level.
+- Added mining closure/reopening state with publication-anchored dates and source-
+  checked structured news replies. Economic scoring excludes closed mines even
+  when prices rise; uncertain closure ends remain conservative.
+- Enabled treasure preparation/summoning at night after the defensive release
+  gate, with inventory, route and time checks. Consume news replies before action
+  planning so replies across dusk remain usable.
+- Successful or already-empty treasure feedback is terminal for the match,
+  suppressing stale replies and new legends until match reset.
+
+Verification:
+
+- Preserved five synthetic reproductions before the fixes, then added boundary
+  coverage for commit rejection, dusk replies, dangerous/invalid treasure windows,
+  terminal-state reset, mining dates, negated reopening and shared LLM quota.
+- All 99 tests passed under local Python 3.11.15; bytecode compilation passed.
+- Both baseline and balanced configurations started through `run.sh` and each
+  passed 11 synthetic HTTP requests, including attack failure recovery, malformed
+  bodies and a correlated daytime-news/nighttime-treasure exchange.
+- Local test servers were terminated after verification. No official match,
+  submission, commit or push was performed for these fixes.
+
+Remaining evidence:
+
+- Confirm exact Python 3.11.10/CentOS behavior, real action-result timing and damage
+  rules, and diverse news/legend interpretations using sanitized platform evidence.
+- Synthetic correctness checks do not establish competitive win rate.
+
+### 2026-09-14 - Playable baseline on qwj/baseline
+
+Changes:
+
+- Enabled the modular baseline with eight-direction navigation, joint reservations,
+  construction, resource sales, supply purchases, upgrades and defensive return timing.
+- Confirmed build rings against the full base footprint: radius one for weapons,
+  radius two for walls. Keep a permanent exit and conservative firing lanes.
+- Added joint weapon targeting using runtime range/power, robot threat and health,
+  gatling ray/angle rules, railgun energy and rocket splash/cooldown.
+- Added safe night supply runs: after spawn, release roles only with an empty threat
+  set or a conservative remaining-firepower cleanup proof. Reevaluate every turn.
+- Added correlated structured task solving, bounded sandbox diagnostics, feedback
+  parsing, news history and guarded treasure preparation/probing.
+- Extended validation for occupancy, joint destinations/gold, build rings/materials,
+  backpack capacity and upgrade compatibility. Suppress recently rejected actions.
+- Added exact-retry caching, stale-turn rejection and match-level LLM/planner reset.
+- Added baseline/balanced JSON configurations and a read-only JSONL replay diagnostic.
+
+Verification:
+
+- Python 3.11.15 local verification; exact 3.11.10/CentOS execution remains pending.
+- 77 tests cover protocol regression, movement, weapons, state machines, configuration,
+  economy and two 260-turn synthetic transitions, one for each side.
+- Both synthetic economies build three weapons by round four, then collect, sell
+  and upgrade. The first-night scenario has three distinct controllers firing.
+- A separate 100-turn randomized check returned valid responses; observed maximum
+  latency was about 12.5 ms. A 200-robot synthetic turn took about 14.3 ms locally.
+- HTTP startup through `run.sh` and synthetic day/night requests passed; malformed
+  JSON, non-object bodies and missing optional fields returned safe JSON.
+- Bounded replay of 130 synthetic snapshots reported zero validation issues and
+  zero decision failures. Missing input failed without exposing source content.
+
+Remaining work/evidence:
+
+1. Run the tests under the exact target interpreter and verify sandbox helper limits.
+2. Replay sanitized live requests to check damage/ray edges, full-map range encoding,
+   phase boundaries and the interpretation of per-projectile `attackPower`.
+3. Verify task prompt/result contracts on actual tasks; generic restricted Python
+   diagnostics cannot solve every task requiring other tools or filesystem writes.
+4. Measure real match base survival, score, task completion and exception counts;
+   compare weapon compositions over multiple maps/sides. No official match was run.
+5. Keep cross-map scoring, summon pressure and dynamic gates disabled until supported.
 
 ### 2026-09-14 - Public repository initialization
 

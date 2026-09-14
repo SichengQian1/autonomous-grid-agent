@@ -43,10 +43,33 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The current implementation provides defensive request models, cross-turn state,
-internal action objects, centralized validation and serialization, and a
-protocol-safe empty strategy. Competitive planners are enabled only after their
-rules and tests are ready.
+The baseline planner is enabled: it builds defenses, gathers and sells resources,
+uses upgrades, returns controllers before night, coordinates weapon fire, and
+resumes nearby supply runs after the local threat is cleared. Task solving uses
+validated structured LLM responses and bounded task-sandbox diagnostics.
+
+Select a strategy configuration with:
+
+```bash
+AGENT_CONFIG=config/baseline.json bash run.sh 8000
+# Comparison composition:
+AGENT_CONFIG=config/balanced.json bash run.sh 8000
+```
+
+An omitted configuration uses baseline defaults. Invalid configuration fails
+explicitly at startup. A configuration containing `{"enabled": false}` restores
+the empty-command behavior. See `docs/baseline.md` for mechanics and limits.
+
+Synthetic HTTP checks and bounded local replay:
+
+```bash
+python3.11 tools/diagnostics/smoke_http.py --port 8000 --scenario day
+python3.11 tools/diagnostics/smoke_http.py --port 8000 --scenario night
+python3.11 tools/diagnostics/replay.py local/turns.jsonl --limit 100
+```
+
+Replay reads one request object per JSONL line and prints only aggregate metrics.
+It never executes emitted sandbox commands or sends requests to a platform.
 
 ## Safety
 

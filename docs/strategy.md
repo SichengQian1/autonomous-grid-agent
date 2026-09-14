@@ -39,7 +39,7 @@ Use a lexicographic decision hierarchy:
 
 Each hypothesis must be converted into a small platform experiment and recorded in `docs/experiments.md` before it becomes a default strategy.
 
-## Planned Match Phases
+## Baseline Match Phases
 
 ### Opening
 
@@ -59,5 +59,37 @@ Each hypothesis must be converted into a small platform experiment and recorded 
 ### Endgame
 
 - Avoid risky travel when survival is uncertain.
+- After the initial nighttime spawn observation, allow nearby supply runs if no
+  relevant robots remain, or the remaining staffed weapons can conservatively
+  kill all relevant robots this turn. Test multiple releases cumulatively.
+- Count only accepted attack commands toward cleanup; recent failures or actions
+  rejected during planning cannot authorize departures.
+- Missing robot observations, critical nearby threats, insufficient damage or
+  cooling weapons prevent release. Reevaluate every turn and recall roles as
+  danger returns. Do not treat a low robot count as sufficient evidence.
 - Reserve emergency consumables when their expected value exceeds another upgrade.
 - Select defensive, score-race, or pressure mode from observed state.
+
+
+## Implemented Boundaries
+
+The baseline is enabled, but composition and economic thresholds remain
+experimental. Build rings are confirmed: weapon cells have Chebyshev distance
+one from the complete base footprint; wall cells have distance two. A permanent
+entrance and forward firing corridors remain open.
+
+Tasks require a reachable task point and a solving window plus return reserve.
+Active tasks keep the pioneer in place until safety requires withdrawal. Runtime
+prices drive income and purchases. The baseline uses carried medicine and can
+spend a matching station voucher immediately when the base is critically damaged.
+Mining closure/reopening news limits which resources may be gathered, independently
+of their price. Controller assignment considers surviving roles and usable weapon
+subsets jointly, with effective nighttime fire taking priority over weapon level.
+
+Only defensive mode is enabled by default. Cross-map scoring is an explicit
+experimental switch; summon-order pressure and dynamic gates are not enabled.
+Treasure parsing validates shape, inventory, time, bounds and source evidence;
+LLM confidence alone does not establish that its interpretation is correct.
+Safe nighttime treasure windows are supported. Successful or already-empty
+treasure feedback persists until the next match and prevents further probing.
+See `baseline.md` for verification scope and remaining platform checks.

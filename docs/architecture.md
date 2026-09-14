@@ -8,7 +8,7 @@
 - Support deterministic replay and rule changes.
 - Use Python 3.11 standard-library functionality at runtime.
 
-## Planned Layers
+## Decision Layers
 
 ```text
 HTTP server
@@ -48,8 +48,26 @@ The zero-exception protocol foundation is implemented:
 - centralized action validation and response serialization
 - side normalization and base-footprint geometry
 
-Competitive planners have not yet been enabled. The current planner returns no
-role commands after safely ingesting the turn.
+The baseline is enabled through `BaselinePlanner`:
+
+- `navigation.py`: bounded BFS, occupied cells, threat avoidance and reservations.
+- `defense.py`: footprint-based build rings, firing positions and controller pairing.
+- `combat.py`: threat scoring, ray/area damage and joint target allocation.
+- `economy.py`: building, gathering, sales, supply purchases and upgrades.
+- `resources.py`: per-mineral closure windows and validated news interpretations.
+- `tasks.py`: LLM correlation, task feedback, restricted sandbox diagnostics and treasure clues.
+- `planning.py`: shared gold/target reservations and incremental action validation.
+- `strategy.py`: day/night scheduling, return deadlines and safe night supply runs.
+- `configuration.py`: validated local JSON configuration.
+
+News replies are consumed before role decisions in either phase. Night release
+proofs are recomputed from committed attacks; controller pairing ranks the joint
+effective fire of surviving role/weapon combinations.
+
+An identical retry reuses its response; stale turns do not mutate state. Match
+restarts reset planner and LLM state. Expensive searches share a cooperative
+monotonic deadline; this is not OS-level preemption. Server exceptions retain the
+empty-command fallback.
 
 ## Design Rules
 
