@@ -10,6 +10,7 @@ from .rules import (
     ROLE_STATION,
     WEAPON_ROLE_TYPES,
     is_day_round,
+    ROBOT_DEFAULTS,
 )
 
 
@@ -207,10 +208,14 @@ class Robot:
     health: int = 0
     abnormal_state: str = ""
     target_team: str = ""
+    attack_power: int = 0
+    attack_range: int = 3
+    kill_score: int = 0
 
     @classmethod
     def from_raw(cls, raw: object) -> Robot:
         data = _mapping(raw)
+        power, reach, score = ROBOT_DEFAULTS.get(_string(data.get("roleType")), (40, 3, 0))
         return cls(
             robot_id=_integer(data.get("id"), -1),
             pos=Pos.from_raw(data.get("pos")),
@@ -218,6 +223,9 @@ class Robot:
             health=_integer(data.get("health")),
             abnormal_state=_string(data.get("abnormalState")),
             target_team=_string(data.get("targetTeam")),
+            attack_power=max(0, _integer(data.get("attackPower"), power)),
+            attack_range=max(0, _integer(data.get("attackRange"), reach)),
+            kill_score=max(0, _integer(data.get("score"), score)),
         )
 
 
@@ -270,6 +278,7 @@ class Turn:
     team_our: TeamOur = field(default_factory=TeamOur)
     team_enemy: TeamEnemy = field(default_factory=TeamEnemy)
     robots: tuple[Robot, ...] = ()
+    robots_observed: bool = False
     phase_task: str = ""
     last_action_results: Mapping[int, bool] = field(default_factory=dict)
     last_summon_treasure_result: int = 0
@@ -300,6 +309,7 @@ class Turn:
             robots=tuple(
                 Robot.from_raw(item) for item in _list(robot_data.get("roles"))
             ),
+            robots_observed=isinstance(robot_data.get("roles"), list),
             phase_task=_string(data.get("phaseTask")),
             last_action_results=action_results,
             last_summon_treasure_result=_integer(

@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from .actions import Action, ActionType, Decision
-from .geometry import Pos
+from .geometry import Pos, footprint_distance
+from .navigation import occupied_cells
 from .models import Turn, Unit
 from .rules import (
     ADJACENT_USE_ITEMS,
@@ -19,6 +20,8 @@ from .rules import (
     TARGETED_USE_ITEMS,
     UNTARGETED_USE_ITEMS,
     WEAPON_ROLE_TYPES,
+    WEAPON_BUILD_COST,
+    MAX_WEAPONS,
 )
 
 
@@ -40,6 +43,9 @@ class ActionValidator:
         issues: list[ValidationIssue] = []
         seen_actors: set[int] = set()
         reserved_controllers: set[int] = set()
+        reserved_targets: set[Pos] = set()
+        gold_left = turn.team_our.gold
+        weapon_count = sum(unit.alive and unit.is_weapon for unit in turn.team_our.roles)
         proposed_role_actors = {
             action.actor_id
             for action in decision.actions
@@ -61,7 +67,27 @@ class ActionValidator:
             if reason:
                 issues.append(ValidationIssue(action.actor_id, reason))
                 continue
+            cost = 0
+            if action.action_type in {ActionType.MOVE, ActionType.BUILD}:
+                if action.targets[0] in reserved_targets:
+                    issues.append(ValidationIssue(action.actor_id, "destination already reserved"))
+                    continue
+            if action.action_type == ActionType.BUY:
+                cost = next(item.price for item in turn.weapon_shop if item.name == action.name) * (action.quantity or 1)
+            if action.action_type == ActionType.BUILD and action.name in WEAPON_ROLE_TYPES:
+                if weapon_count >= MAX_WEAPONS:
+                    issues.append(ValidationIssue(action.actor_id, "weapon limit reached"))
+                    continue
+                cost = WEAPON_BUILD_COST
+            if cost > gold_left:
+                issues.append(ValidationIssue(action.actor_id, "shared gold budget exceeded"))
+                continue
+            gold_left -= cost
             accepted.append(action)
+            if action.action_type in {ActionType.MOVE, ActionType.BUILD}:
+                reserved_targets.add(action.targets[0])
+            if action.action_type == ActionType.BUILD and action.name in WEAPON_ROLE_TYPES:
+                weapon_count += 1
             if action.controller_id is not None:
                 reserved_controllers.add(action.controller_id)
 
@@ -75,8 +101,10 @@ class ActionValidator:
         reserved_controllers: set[int],
     ) -> str:
         actor = turn.team_our.unit(action.actor_id)
-        if actor is None or not actor.alive or actor.pos is None:
+        if action.actor_id < 0 or actor is None or not actor.alive or actor.pos is None:
             return "actor is missing, dead, or has no position"
+        if not turn.map_info.contains(actor.pos):
+            return "actor is outside the map"
         if not isinstance(action.action_type, ActionType):
             return "unknown action"
         if any(not turn.map_info.contains(target) for target in action.targets):
@@ -124,11 +152,13 @@ class ActionValidator:
         proposed_role_actors: set[int],
         reserved_controllers: set[int],
     ) -> str:
-        del turn, proposed_role_actors, reserved_controllers
+        del proposed_role_actors, reserved_controllers
         if not self._human(actor):
             return "only a controllable role can move"
         if not self._single_adjacent_target(actor, action):
             return "move requires one adjacent target"
+        if action.targets[0] in occupied_cells(turn, except_actor=actor.unit_id):
+            return "move destination is occupied"
         return ""
 
     def _validate_attack(
@@ -154,7 +184,7 @@ class ActionValidator:
             or not controller.is_human
             or controller.pos is None
             or actor.pos is None
-            or controller.pos.distance_to(actor.pos) > 1
+            or controller.pos.distance_to(actor.pos) != 1
         ):
             return "controller is unavailable or not adjacent"
         if action.controller_id in reserved_controllers:
@@ -224,6 +254,8 @@ class ActionValidator:
             return "buy requires a positive quantity and item name"
         if action.name not in {item.name for item in turn.weapon_shop}:
             return "item is not present in the runtime shop"
+        if len(actor.backpack) + action.quantity > actor.backpack_capacity:
+            return "backpack capacity exceeded"
         if not self._adjacent_to_zone(turn, actor, "weaponShop"):
             return "buyer is not adjacent to a weapon shop"
         return ""
@@ -245,6 +277,14 @@ class ActionValidator:
             return "build name is not recognized"
         if not self._single_adjacent_target(actor, action):
             return "build requires one adjacent target"
+        station = turn.team_our.station()
+        required_distance = 2 if action.name == ROLE_WALL else 1
+        if station is None or footprint_distance(action.targets[0], station.footprint()) != required_distance:
+            return "build target is outside its permitted ring"
+        if action.targets[0] in occupied_cells(turn):
+            return "build target is occupied"
+        if action.name == ROLE_WALL and "stone" not in actor.backpack:
+            return "wall requires stone"
         return ""
 
     def _validate_remove(
@@ -282,6 +322,7 @@ class ActionValidator:
             return "acceptTask contains unsupported fields"
         if actor.pos is None or not any(
             task.is_valid
+            and task.cooldown_rounds == 0
             and task.task_position is not None
             and actor.pos.distance_to(task.task_position) <= 1
             for task in turn.team_our.player_tasks
@@ -332,7 +373,7 @@ class ActionValidator:
         proposed_role_actors: set[int],
         reserved_controllers: set[int],
     ) -> str:
-        del turn, proposed_role_actors, reserved_controllers
+        del proposed_role_actors, reserved_controllers
         if not self._human(actor):
             return "only a controllable role can use an item"
         if not action.name or action.name not in actor.backpack:
@@ -340,10 +381,22 @@ class ActionValidator:
         if action.name in TARGETED_USE_ITEMS:
             if len(action.targets) != 1:
                 return "targeted item requires exactly one target"
+            building = next((unit for unit in turn.team_our.roles if unit.alive and action.targets[0] in unit.footprint()), None)
+            if "UpgradeVoucher" in action.name or action.name == "WallFixer":
+                if building is None:
+                    return "item requires a living friendly building"
+                if action.name.startswith("Weapon") and not building.is_weapon:
+                    return "weapon voucher requires a weapon"
+                if action.name.startswith("Station") and building.role_type != "station":
+                    return "station voucher requires a station"
+                if action.name.startswith("Wall") and building.role_type != ROLE_WALL:
+                    return "wall item requires a wall"
+                if "UpgradeVoucher" in action.name and building.level != int(action.name[-1]):
+                    return "voucher does not match building level"
             if (
                 action.name in ADJACENT_USE_ITEMS
                 and actor.pos is not None
-                and actor.pos.distance_to(action.targets[0]) > 1
+                and (footprint_distance(actor.pos, building.footprint()) if building else actor.pos.distance_to(action.targets[0])) > 1
             ):
                 return "item target is not adjacent"
         elif action.name in UNTARGETED_USE_ITEMS:
@@ -379,6 +432,8 @@ class ActionValidator:
         del proposed_role_actors, reserved_controllers
         if actor.role_type != ROLE_WORKER:
             return "only a worker can collect"
+        if len(actor.backpack) >= actor.backpack_capacity:
+            return "backpack is full"
         if not self._single_adjacent_target(actor, action):
             return "collect requires one adjacent target"
         if not any(

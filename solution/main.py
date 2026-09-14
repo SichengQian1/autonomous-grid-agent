@@ -10,7 +10,8 @@ from typing import Any
 if sys.version_info < (3, 11):
     raise SystemExit("Python 3.11 or newer is required")
 
-from .engine import decide_payload
+from .engine import configure_engine, decide_payload
+from .configuration import load_config
 from .protocol import safe_response
 
 
@@ -100,6 +101,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(message)s",
     )
     try:
+        configure_engine(load_config())
         serve(parse_port(sys.argv))
     except KeyboardInterrupt:
         LOGGER.info("server stopped")

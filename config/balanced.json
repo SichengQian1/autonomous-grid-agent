@@ -1,0 +1,6 @@
+{
+  "primary_weapon_loadout": ["gatling", "railgun", "rocket"],
+  "night_gathering": true,
+  "allow_score_stealing": false,
+  "projectile_building_blocking": true
+}

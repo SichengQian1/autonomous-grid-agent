@@ -7,6 +7,15 @@ DAY_ROUNDS = 70
 NIGHT_ROUNDS = 60
 ROUNDS_PER_DAY = DAY_ROUNDS + NIGHT_ROUNDS
 NORMAL_TURN_BUDGET_SECONDS = 4.0
+WEAPON_BUILD_COST = 25
+MAX_WEAPONS = 3
+MAX_BUILDING_LEVEL = 3
+ROBOT_DEFAULTS = {
+    "smallRobot": (5, 3, 1),
+    "middleRobot": (10, 3, 2),
+    "largeRobot": (20, 3, 4),
+    "bossRobot": (40, 3, 10),
+}
 
 TEAM_CHALLENGER = "challenger"
 TEAM_DEFENDER = "defender"
@@ -81,6 +90,23 @@ def is_day_round(round_no: int) -> bool:
 @dataclass(frozen=True, slots=True)
 class StrategyConfig:
     normal_turn_budget_seconds: float = NORMAL_TURN_BUDGET_SECONDS
+    enabled: bool = True
+    return_margin: int = 5
+    path_node_limit: int = 8192
+    stone_reserve: int = 4
+    sell_batch: int = 8
+    max_walls: int = 10
+    task_min_rounds: int = 10
+    task_retry_rounds: int = 3
+    max_task_calls: int = 12
+    night_gathering: bool = True
+    night_trip_radius: int = 8
+    night_small_wave: int = 3
+    heal_below: int = 120
+    base_emergency_health: int = 800
+    projectile_building_blocking: bool = True
+    allow_score_stealing: bool = False
+    combat_candidate_limit: int = 128
     primary_weapon_loadout: tuple[str, str, str] = (
         ROLE_RAILGUN,
         ROLE_RAILGUN,
