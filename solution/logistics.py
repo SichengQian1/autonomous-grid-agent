@@ -134,6 +134,7 @@ def plan_upgrade_or_repair(
         (
             name for name, _target, _priority in options
             if name in shop_items and 0 < shop_items[name] <= budget.offensive
+            and not any(name in unit.backpack for unit in turn.controllable)
         ),
         None,
     )

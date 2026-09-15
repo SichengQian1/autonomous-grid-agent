@@ -26,6 +26,7 @@ class WorldState:
     night_economy_disabled: bool = False
     rear_threat_observed: bool = False
     previous_station_health: int | None = None
+    recall_day: int = -1
 
     def reset(self, turn: Turn) -> None:
         self.generation += 1
@@ -45,6 +46,7 @@ class WorldState:
         self.night_economy_disabled = False
         self.rear_threat_observed = False
         self.previous_station_health = None
+        self.recall_day = -1
 
     def ingest(self, turn: Turn) -> None:
         incoming_key = (turn.team_our.team_id, turn.team_our.team_type)

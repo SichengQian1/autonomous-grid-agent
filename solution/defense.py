@@ -32,27 +32,21 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
     ymax = max(pos.y for pos in normalized_station)
     mid_y = (ymin + ymax) // 2
 
-    # User-observed V1 relationship: normalized threat is from +x, and the fixed
-    # activity opening is on -x. Exact legal build cells remain platform-unverified.
-    # Weapons live behind the station.  The first three candidates flank the
-    # permanent rear lanes instead of occupying them.  Edge-map fallbacks come
-    # last and are deliberately still no farther forward than the station.
+    # The map's blue ring is distance 1 from the entire 2x2 base footprint;
+    # yellow wall cells are distance 2.  Normalized threat is from positive x.
     weapon_norm = (
-        Pos(xmin - 2, ymin - 1),
-        Pos(xmin - 2, ymax + 1),
-        Pos(xmin - 3, ymin - 1),
-        Pos(xmin - 3, ymax + 1),
-        Pos(xmin - 1, ymin - 2),
-        Pos(xmin - 1, ymax + 2),
-        Pos(xmin, ymin - 2),
-        Pos(xmin, ymax + 2),
-        Pos(xmax, ymin - 2),
-        Pos(xmin, ymin - 3),
-        Pos(xmax, ymin - 3),
-        Pos(xmin, ymax + 3),
-        Pos(xmax, ymax + 3),
+        Pos(xmin - 1, ymin - 1),
+        Pos(xmin, ymin - 1),
+        Pos(xmin - 1, ymax + 1),
+        Pos(xmin, ymax + 1),
+        Pos(xmax, ymin - 1),
+        Pos(xmax, ymax + 1),
+        Pos(xmax + 1, ymin - 1),
+        Pos(xmax + 1, ymax + 1),
+        Pos(xmax + 1, ymin),
+        Pos(xmax + 1, ymax),
     )
-    front_x = xmax + 3
+    front_x = xmax + 2
     # Build the centre of the front face first, then extend it and add side
     # protection.  A partial rear face is allowed, but the two central rear
     # lanes below are never candidates for a wall.
@@ -63,13 +57,10 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         for x in range(front_x - 1, xmin - 2, -1)
         for y in (ymin - 2, ymax + 2)
     )
-    rear_face = tuple(Pos(xmin - 2, y) for y in (ymin - 2, ymax + 2))
+    rear_face = tuple(Pos(xmin - 2, y) for y in (ymin - 2, ymin - 1, ymax + 1, ymax + 2))
     wall_norm = first_layer + side_faces + rear_face
     if conservative:
-        wall_norm += (
-            Pos(xmin - 3, ymin - 2),
-            Pos(xmin - 3, ymax + 2),
-        )
+        wall_norm = rear_face + first_layer + side_faces
 
     neutral = {frame.normalize(zone.pos) for zone in turn.map_info.zones if zone.pos is not None}
 
@@ -88,9 +79,8 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
     # is a compatibility fallback, not a second side-specific strategy.
     if len(corridor_norm) < 2:
         side_candidates = tuple(
-            Pos(x, ymin - offset)
-            for offset in (1, 2)
-            for x in (xmin, xmax)
+            Pos(xmax, y)
+            for y in (ymin - 1, ymin - 2, ymax + 1, ymax + 2)
         )
         corridor_norm = tuple(pos for pos in side_candidates if legal_normalized(pos))[:2]
     exit_norm = corridor_norm[0] if corridor_norm else None
@@ -102,6 +92,7 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
             legal_normalized(pos)
             and pos not in forbidden
             and pos not in unique_weapon_norm
+            and min(pos.distance_to(cell) for cell in normalized_station) == 1
         ):
             unique_weapon_norm.append(pos)
     weapon_sites = tuple(frame.denormalize(pos) for pos in unique_weapon_norm)
@@ -115,7 +106,7 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         for pos in corridor_norm
         if turn.map_info.contains(frame.denormalize(pos))
     )
-    controller_sites = _controller_sites(turn, weapon_sites, rear_corridor)
+    controller_sites = _controller_sites(turn, weapon_sites, rear_corridor, wall_sites)
     return DefenseLayout(
         frame=frame,
         weapon_sites=weapon_sites,
@@ -182,9 +173,12 @@ def _controller_sites(
     turn: Turn,
     weapon_sites: tuple[Pos, ...],
     rear_corridor: tuple[Pos, ...],
+    wall_sites: tuple[Pos, ...] = (),
 ) -> tuple[Pos, ...]:
     blocked = {cell for unit in turn.team_our.roles + turn.team_enemy.roles for cell in unit.footprint()}
     blocked.update(zone.pos for zone in turn.map_info.zones if zone.pos is not None)
+    blocked.update(weapon_sites[:3])
+    blocked.update(wall_sites)
     result: list[Pos] = []
     corridor = set(rear_corridor)
     for weapon in weapon_sites[:3]:

@@ -22,6 +22,46 @@ from tests.helpers import synthetic_turn
 
 
 class TaskStateTests(unittest.TestCase):
+    def test_chinese_filename_probe_and_five_turn_task_cycle(self):
+        manager, state, budget = TaskManager(), WorldState(), LlmBudget()
+        def step(r, **fields):
+            raw = synthetic_turn(round_no=r)
+            raw["phaseTask"] = "请阅读fixture_notes.md，获取任务信息"
+            raw.update(fields)
+            turn = Turn.from_raw(raw)
+            state.ingest(turn)
+            budget.refresh(turn)
+            return manager.plan(turn, state, budget, DEFAULT_CONFIG, turn.team_our.unit(2))
+        self.assertIn("fixture_notes.md", step(10).execute_command)
+        self.assertTrue(step(11, lastCmdResult="[exitCode:0]\nfixture data").prompt)
+        self.assertTrue(step(12, llmResp=json.dumps({"command": 'python3 -c "print(42)"'})).execute_command)
+        # Equal text is a distinct result when it belongs to a new command.
+        self.assertTrue(step(13, lastCmdResult="[exitCode:0]\nfixture data").prompt)
+        plan = step(14, llmResp=json.dumps({"answer": {"value": 42, "checked": True}}))
+        self.assertEqual(json.loads(plan.action.task_answer), {"value": 42, "checked": True})
+
+    def test_missing_command_result_recovers_after_bounded_wait(self):
+        turn = Turn.from_raw(synthetic_turn(round_no=15))
+        state = WorldState()
+        state.ingest(turn)
+        manager = TaskManager(last_generation=state.generation, phase=TaskPhase.WAITING_COMMAND,
+                              command_requested_round=10, command_steps=1)
+        plan = manager.plan(turn, state, LlmBudget(), DEFAULT_CONFIG, turn.team_our.unit(2))
+        self.assertIn("No sandbox result", plan.prompt)
+
+    def test_rejected_answer_retries_are_bounded(self):
+        state, budget, manager = WorldState(), LlmBudget(), TaskManager()
+        submitted = 0
+        for r in range(10,20):
+            raw = synthetic_turn(round_no=r)
+            raw["llmResp"] = json.dumps({"answer": "attempt-" + str(r)})
+            raw["errors"] = [{"errorCode":2}]
+            turn = Turn.from_raw(raw)
+            state.ingest(turn); budget.refresh(turn)
+            plan = manager.plan(turn,state,budget,DEFAULT_CONFIG,turn.team_our.unit(2))
+            submitted += plan.action is not None
+        self.assertEqual(submitted, DEFAULT_CONFIG.task_submit_limit)
+
     def test_malformed_llm_is_rejected(self) -> None:
         self.assertIsNone(parse_structured_llm("not json"))
         self.assertIsNone(parse_structured_llm("[]"))
@@ -164,6 +204,28 @@ class TreasureTests(unittest.TestCase):
 
 
 class ActivePlannerTests(unittest.TestCase):
+    def test_task_waiting_role_does_not_walk_to_shop(self):
+        raw = synthetic_turn(round_no=15)
+        raw["teamOur"]["goldNum"] = 300
+        raw["weaponShopList"].append({"name":"WeaponUpgradeVoucher1","price":100})
+        response = AgentEngine().decide(raw)
+        self.assertNotIn("2", response["roleCommandMap"])
+        self.assertTrue(response.get("prompt"))
+
+    def test_cooling_launcher_controller_stays_until_wave_is_clear(self):
+        from tests.helpers import role
+        raw = synthetic_turn(round_no=71)
+        raw["phaseTask"] = ""
+        raw["mapInfo"]["zones"] = []
+        raw["teamOur"]["roles"] = [role(1,"worker",2,3),role(2,"pioneer",4,3),role(3,"worker",6,3),
+            role(10,"rocket",2,4,health=1000,level=1,attack_range=10,cooldown=2),
+            role(11,"rocket",4,4,health=1000,level=1,attack_range=10,cooldown=2),
+            role(12,"railgun",6,4,health=1000,level=1,attack_range=6),
+            role(13,"station",3,7,health=1500,level=1)]
+        response = AgentEngine().decide(raw)
+        self.assertTrue(any(a["action"]=="attack" for a in response["roleCommandMap"].values()))
+        self.assertFalse(any(a["action"] in ("move","collect","sell") for a in response["roleCommandMap"].values()))
+
     def test_day_one_is_not_permanently_empty(self) -> None:
         raw = synthetic_turn(round_no=1)
         raw["phaseTask"] = ""

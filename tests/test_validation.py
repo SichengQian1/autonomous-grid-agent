@@ -189,6 +189,7 @@ class ActionValidationTests(unittest.TestCase):
             }
             for actor_id in (1, 2, 3)
         ]
+        raw["teamOur"]["roles"].append({"id": 10, "roleType": "station", "pos": {"x": 2, "y": 4}, "health": 1500, "level": 1})
         turn = Turn.from_raw(raw)
         result = self.validator.validate(
             turn,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import permutations
 
 from .actions import Action, ActionType
 from .geometry import Pos
@@ -29,21 +30,15 @@ class ControllerAssignment:
 
 
 def assign_controllers(turn: Turn, weapons: tuple[Unit, ...]) -> tuple[ControllerAssignment, ...]:
-    available = list(turn.controllable)
-    result: list[ControllerAssignment] = []
-    ordered = sorted(weapons, key=lambda weapon: (weapon.role_type != ROLE_ROCKET, weapon.unit_id))
-    for weapon in ordered:
-        if weapon.pos is None or not available:
-            continue
-        def preference(role: Unit) -> tuple[int, int, int]:
-            preferred = (weapon.role_type == ROLE_ROCKET and role.role_type == "pioneer") or (
-                weapon.role_type != ROLE_ROCKET and role.role_type == "worker"
-            )
-            return (0 if preferred else 1, role.pos.distance_to(weapon.pos) if role.pos else 10**6, role.unit_id)
-        controller = min(available, key=preference)
-        available.remove(controller)
-        result.append(ControllerAssignment(weapon, controller))
-    return tuple(result)
+    available = tuple(sorted((r for r in turn.controllable if r.pos is not None), key=lambda r:r.unit_id))
+    ordered = tuple(sorted((w for w in weapons if w.pos is not None), key=lambda w:(w.role_type != ROLE_ROCKET,w.unit_id)))[:len(available)]
+    if not ordered:
+        return ()
+    def cost(roles):
+        distances = [max(0, r.pos.distance_to(w.pos)-1) for w,r in zip(ordered,roles)]
+        return sum(d > 0 for d in distances), max(distances), sum(distances), tuple(r.unit_id for r in roles)
+    chosen = min(permutations(available,len(ordered)),key=cost)
+    return tuple(ControllerAssignment(w,r) for w,r in zip(ordered,chosen))
 
 
 def controllers_needed(weapons: tuple[Unit, ...], robots: tuple[Robot, ...]) -> int:

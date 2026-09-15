@@ -86,6 +86,64 @@ empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
 
+### 2026-09-15 - v0.3 opening failure repair and restricted-zone regression
+
+Runtime evidence and cause:
+
+- The returned v0.2 log has 99 decoded turns: all 13 attempted weapon builds failed,
+  first-night weapons/walls were both zero, task score remained zero, and the base
+  was absent by round 99. This is a failed platform run, despite earlier synthetic
+  tests passing. The earlier harness permitted construction on arbitrary cells and
+  incorrectly turned all collected resources into stone.
+- Rechecked the building diagram and successful construction observations: weapon
+  candidates must be distance 1 from the whole 2x2 footprint; wall cells distance 2.
+  v0.2 weapon offsets all fell outside the weapon ring and the front wall was too far.
+- A depleted candidate list led to ordinary mining rather than a functioning defense.
+  Profit-based ore selection did not enforce the stone supply needed for walls.
+
+Changes and reasons:
+
+- Corrected normalized rings, rear weapon preferences, two-cell permanent exit,
+  and build validation. Reserve new construction cells against same-turn movement.
+- Assign nearby builders, gather batches of stone for walls, and release one worker
+  to income after ten walls. This follows the observed opening/stone/defense workflow.
+- Keep cooling launchers staffed while threats remain; use nearest joint controller
+  assignments and latch pre-night recall until the next day. Recall uses actual
+  obstacle-aware path length rather than direct distance through walls. Adjacent carried repairs
+  remain available during cooldown without abandoning a control position.
+- Reserve the pioneer during asynchronous task waits. Recognize filenames adjacent
+  to Chinese text, inspect task/supporting docs together, preserve structured answer
+  objects, consume identical results from different commands, bound submission retries,
+  and recover from missing command replies. No opponent answers/tokens were embedded.
+- Corrected telemetry from `targets` to the actual `targetPos` field. Added readiness,
+  map/zone context, failed sites, validation reasons, and task state; logging failure
+  cannot erase a valid response. Added `--summary` for existing and new logs.
+
+Verification and release:
+
+- Added an independent synthetic world that rejects invalid weapon/wall rings and
+  places valuable copper closer than stone. It reproduced the v0.2 zero-weapon
+  failure before the fix. Both sides now complete three weapons by round 5 and
+  at least ten walls by round 70, with adjacent controllers and no build failures.
+- Updated the existing synthetic harness to enforce building rings and ore types.
+- All 106 standard-library tests pass with Python 3.12.14. Both 1,300-turn synthetic
+  replays report zero invalid responses and zero failed actions. The exact target
+  Python 3.11.10 interpreter is not installed locally; platform verification remains required.
+- These are synthetic regression results; robot routing, real survival, task success,
+  and actual score/win rate still require a v0.3 platform run.
+- Package and publish v0.3 on `codex/v0` using explicit Git file lists. Keep v0.2's
+  archive for traceability. Logs, reference materials and PDF renders remain local.
+- Fresh extraction passed HTTP smoke, malformed-JSON fallback, and the synthetic
+  five-turn three-weapon opening. Artifact: `submissions/v0/submission-v0.3.tar.gz`.
+  SHA-256: `4e407d2076011df7429018415a8f8678a642d3a87399816b883db13b56405a73`.
+
+Next workflow:
+
+1. Pull `codex/v0` and upload `submissions/v0/submission-v0.3.tar.gz` directly.
+2. Run a simulation; return only the decoder's `--summary` by default.
+3. Inspect weapon completion, first-night wall count, task retries and controller
+   readiness before tuning more advanced strategy.
+
 ### 2026-09-15 - v0.2 development-first strategy and observable runtime
 
 Changes:

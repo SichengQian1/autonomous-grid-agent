@@ -50,7 +50,10 @@ def decode_event(line: str) -> dict[str, Any]:
     marker = line.find(PREFIX)
     if marker < 0:
         raise ValueError("not an AGLOG2 record")
-    token = line[marker + len(PREFIX):].strip().split()[0]
+    tokens = line[marker + len(PREFIX):].strip().split()
+    if not tokens:
+        raise ValueError("empty AGLOG2 record")
+    token = tokens[0]
     try:
         packed = base64.b85decode(token.encode("ascii"))
     except (ValueError, UnicodeEncodeError) as error:
@@ -127,7 +130,7 @@ def build_turn_event(
             if not isinstance(raw_command, Mapping):
                 continue
             # Answers, prompts and command text are intentionally never logged.
-            targets = raw_command.get("targets")
+            targets = raw_command.get("targetPos")
             safe_targets = targets if isinstance(targets, list) else []
             commands.append(
                 [
@@ -141,7 +144,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.2",
+        "agentVersion": "v0.3",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,
@@ -163,6 +166,12 @@ def build_turn_event(
         },
         "elapsedMs": max(0, elapsed_ms),
         "dropped": max(0, dropped_actions),
+        "treasureResult": turn.last_summon_treasure_result,
+        "map": {"width": turn.map_info.width, "height": turn.map_info.height},
+        "readiness": {
+            "weapons": sum(u.is_weapon and u.alive for u in turn.team_our.roles),
+            "walls": sum(u.role_type == "wall" and u.alive for u in turn.team_our.roles),
+        },
     }
 
 
@@ -172,11 +181,12 @@ class Telemetry:
     reserve_bytes: int
     used_bytes: int = 0
     sequence: int = 0
+    generation: int = -1
 
     def emit(self, event: Mapping[str, Any], *, critical: bool = False) -> bool:
         try:
             line = encode_event(self.sequence, event)
-            size = len(line.encode("utf-8")) + 1
+            size = len(line.encode("utf-8")) + 64  # Include logging prefix/newline.
             normal_limit = max(0, self.byte_budget - self.reserve_bytes)
             limit = self.byte_budget if critical else normal_limit
             if self.used_bytes + size > limit:
@@ -196,6 +206,7 @@ class Telemetry:
         *,
         elapsed_ms: int,
         dropped_actions: int,
+        diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
         critical = bool(turn.errors) or turn.round_in_day in {1, 70, 71, 130}
         event = build_turn_event(
@@ -204,6 +215,9 @@ class Telemetry:
             elapsed_ms=elapsed_ms,
             dropped_actions=dropped_actions,
         )
+        event["diagnostics"] = dict(diagnostics or {})
+        if turn.round_in_day == 1:
+            event["zones"] = [[z.neutral_type, _pos(z.pos)] for z in turn.map_info.zones][:100]
         if not self.emit(event, critical=critical) and turn.round_no % 30 == 0:
             self.emit(
                 {

@@ -102,6 +102,8 @@ class StrategyConfig:
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
     wall_stone_target: int = 10
+    stone_batch_size: int = 6
+    initial_wall_target: int = 10
     task_minimum_timeout: int = 12
     task_return_buffer: int = 4
     treasure_confidence_threshold: float = 0.95
@@ -111,8 +113,10 @@ class StrategyConfig:
     allow_summon_pressure: bool = False
     boss_summon_item: str = "BossRobotSummonOrder"
     minimum_opponent_observations: int = 2
-    task_command_step_limit: int = 2
-    task_command_output_limit: int = 6000
+    task_command_step_limit: int = 5
+    task_command_output_limit: int = 16000
+    task_response_wait: int = 3
+    task_submit_limit: int = 3
     telemetry_byte_budget: int = 512 * 1024
     telemetry_reserve_bytes: int = 64 * 1024
 

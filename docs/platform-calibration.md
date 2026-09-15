@@ -40,10 +40,10 @@ PowerShell:
 python .\tools\diagnostics\summarize_match_log.py "D:\path\to\match-log.jsonl"
 ```
 
-For a v0.2 agent `.log` or `.log.xz`, decode the private-format records first:
+For a v0.2 or v0.3 agent `.log` or `.log.xz`, print a bounded diagnosis:
 
 ```powershell
-python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decoded.jsonl
+python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" --summary
 ```
 
 Paste only the bounded JSON summary. The tools read bounded records and omit team
@@ -54,6 +54,12 @@ logs. If the export format is not recognized, share only a screenshot of the log
 format or a few manually redacted structural lines so the parser can be adapted.
 
 ## Current Unverified Boundary
+
+The v0.2 returned log established 13 failed weapon builds, no walls or weapons at
+the first night, and a missing base by round 99. v0.3 corrects ring geometry against
+the source diagram and uses independent restricted-zone synthetic regressions.
+For the first v0.3 match prioritize: round of third weapon, wall count at round 70,
+controller positions, construction result coordinates, and task error codes.
 
 The following remain `UNVERIFIED_PLATFORM_BEHAVIOR`: exact build cells; real robot
 routing and settlement order; rear-exit safety; weapon/wall projectile interaction;

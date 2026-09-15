@@ -326,6 +326,13 @@ class ActionValidator:
         if not self._single_adjacent_target(actor, action):
             return "build requires one adjacent target"
         target = action.targets[0]
+        station = turn.team_our.station()
+        if station is None or not station.footprint():
+            return "build requires a known base footprint"
+        ring_distance = min(target.distance_to(cell) for cell in station.footprint())
+        required_ring = 2 if action.name == ROLE_WALL else 1
+        if ring_distance != required_ring:
+            return "build target is outside its permitted building ring"
         if any(target in unit.footprint() for unit in turn.team_our.roles + turn.team_enemy.roles):
             return "build target is already occupied"
         if any(zone.pos == target for zone in turn.map_info.zones):

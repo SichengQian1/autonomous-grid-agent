@@ -11,6 +11,7 @@ from .defense import (
     build_defense_layout,
     estimated_contact_turns,
     existing_weapons,
+    existing_walls,
     own_threats,
 )
 from .economy import (
@@ -22,7 +23,7 @@ from .economy import (
     wall_build_objective,
     weapon_build_objectives,
 )
-from .grid import OccupancyGrid, interaction_cells
+from .grid import OccupancyGrid, interaction_cells, shortest_path
 from .logistics import plan_upgrade_or_repair
 from .models import Turn, Unit
 from .movement import MoveIntent, schedule_moves
@@ -110,7 +111,9 @@ class CompetitionPlanner:
             None,
         )
 
-        recall = self._recall_needed(turn, layout, config)
+        recall = state.recall_day == turn.day_index or self._recall_needed(turn, layout, config)
+        if recall:
+            state.recall_day = turn.day_index
         if recall:
             recall_intents = self._controller_intents(turn, priority=120)
             assigned_recall = {intent.actor_id for intent in recall_intents}
@@ -136,7 +139,12 @@ class CompetitionPlanner:
             used.update(intent.actor_id for intent in recall_intents)
         else:
             objectives = weapon_build_objectives(turn, layout, state, config)
-            for worker, objective in zip(workers, objectives):
+            builders = list(workers)
+            for objective in objectives:
+                if not builders:
+                    break
+                worker = min(builders, key=lambda role: (role.pos.distance_to(objective.site), role.unit_id))
+                builders.remove(worker)
                 if worker.pos is None:
                     continue
                 if worker.pos.distance_to(objective.site) <= 1 and worker.pos != objective.site:
@@ -162,6 +170,29 @@ class CompetitionPlanner:
             for worker in workers:
                 if worker.unit_id in used:
                     continue
+                # Ring walls require stone, not whichever ore currently sells best.
+                # Reserve a complete batch before walking back from the mine.
+                wall_count = len(existing_walls(turn))
+                wall_target = min(len(layout.wall_sites), config.max_wall_count)
+                if wall_count >= config.initial_wall_target and len(workers) > 1 and worker == workers[-1]:
+                    # Once the first-night core exists, release one worker to
+                    # fund upgrades while the engineer completes the perimeter.
+                    continue
+                stones = worker.backpack.count("stone")
+                batch = min(config.stone_batch_size, max(0, wall_target - wall_count))
+                if wall_count < wall_target and stones < batch:
+                    stone_zones = [z for z in turn.map_info.zones if z.neutral_type == "stone" and z.pos is not None]
+                    stone = min(stone_zones, key=lambda z: worker.pos.distance_to(z.pos), default=None)
+                    near_mine = stone is not None and worker.pos.distance_to(stone.pos) <= 1
+                    # Carry a batch back once collected; nearer dusk spend whatever
+                    # stone is already in the backpack instead of starting a trip.
+                    if stone is not None and (stones == 0 or (near_mine and turn.rounds_until_night > 15)):
+                        if near_mine:
+                            actions.append(Action(worker.unit_id, ActionType.COLLECT, targets=(stone.pos,)))
+                        else:
+                            intents.append(MoveIntent(worker.unit_id, self._interaction_goals(turn, worker, stone.pos), 80))
+                        used.add(worker.unit_id)
+                        continue
                 wall = wall_build_objective(
                     turn,
                     worker,
@@ -196,6 +227,8 @@ class CompetitionPlanner:
                     pioneer,
                 )
                 self._merge_advanced(advanced, actions, intents, used)
+                if turn.phase_task or advanced.prompt or advanced.execute_command:
+                    used.add(pioneer.unit_id)
                 if pioneer.unit_id not in used:
                     boss_plan = self._boss_plan(turn, pioneer, mode, budget, config)
                     self._merge_advanced(boss_plan, actions, intents, used)
@@ -250,9 +283,20 @@ class CompetitionPlanner:
 
             for worker in workers:
                 if worker.unit_id not in used:
+                    if pioneer is None or turn.phase_task:
+                        logistics = plan_upgrade_or_repair(turn, worker, budget)
+                        if logistics.action is not None:
+                            actions.append(logistics.action)
+                            used.add(worker.unit_id)
+                        elif logistics.move is not None:
+                            intents.append(logistics.move)
+                            used.add(worker.unit_id)
+                    if worker.unit_id in used:
+                        continue
                     self._plan_worker_economy(turn, worker, actions, intents, used)
 
-        move_actions = schedule_moves(turn, intents)
+        build_cells = tuple(target for action in actions if action.action_type == ActionType.BUILD for target in action.targets)
+        move_actions = schedule_moves(turn, intents, occupied_destinations=build_cells)
         actions.extend(action for action in move_actions if action.actor_id not in {item.actor_id for item in actions})
         prompt = (advanced.prompt or treasure_prompt) if not recall else ""
         execute = advanced.execute_command if not recall else ""
@@ -269,11 +313,9 @@ class CompetitionPlanner:
         budget: DefenseBudget,
     ) -> Decision:
         weapons = existing_weapons(turn)
-        combat_weapons = tuple(
-            weapon
-            for weapon in weapons
-            if weapon.role_type != "rocket" or weapon.cooldown <= 0
-        )
+        # Keep cooling launchers assigned: otherwise their operators leave to mine
+        # and cannot fire when cooldown expires. Release after our wave is clear.
+        combat_weapons = weapons
         assignments = assign_controllers(turn, combat_weapons)
         assignments = tuple(
             sorted(
@@ -293,7 +335,7 @@ class CompetitionPlanner:
                 ),
             )
         )
-        needed = controllers_needed(combat_weapons, threats)
+        needed = len(assignments) if threats else 0
         active_assignments = assignments[:needed]
         attack_targets = threats
         if not attack_targets and config.allow_cross_map_fire and mode == StrategyMode.SCORE_RACE:
@@ -329,6 +371,20 @@ class CompetitionPlanner:
                 # before that threat enters range.
                 used_controllers.add(assignment.controller.unit_id)
 
+        # A cooling launcher operator may use an already-carried adjacent repair
+        # item, but remains at the control cell and does not start a shopping trip.
+        for assignment in active_assignments:
+            if assignment.weapon.role_type != "rocket" or assignment.weapon.cooldown <= 0:
+                continue
+            role = assignment.controller
+            if any(intent.actor_id == role.unit_id for intent in intents):
+                continue
+            maintenance = plan_upgrade_or_repair(turn, role, budget, config,
+                                                 allow_move=False, critical_only=True)
+            if maintenance.action is not None and maintenance.action.action_type == ActionType.USE:
+                actions.append(maintenance.action)
+                break
+
         released = [
             role for role in turn.controllable
             if role.unit_id not in used_controllers
@@ -359,7 +415,7 @@ class CompetitionPlanner:
                     intents.append(maintenance.move)
                     used_controllers.add(role.unit_id)
                     break
-            pioneer = next((role for role in released if role.role_type == ROLE_PIONEER), None)
+            pioneer = next((role for role in released if role.role_type == ROLE_PIONEER and not threats), None)
             if pioneer is not None and pioneer.unit_id not in used_controllers:
                 advanced = self._safe_task_plan(
                     turn,
@@ -369,8 +425,10 @@ class CompetitionPlanner:
                     pioneer,
                 )
                 self._merge_advanced(advanced, actions, intents, used_controllers)
+                if turn.phase_task or advanced.prompt or advanced.execute_command:
+                    used_controllers.add(pioneer.unit_id)
             for worker in released:
-                if worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
+                if not threats and worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers)
 
         moves = schedule_moves(turn, intents)
@@ -420,7 +478,7 @@ class CompetitionPlanner:
         budget: DefenseBudget,
         config: StrategyConfig,
     ) -> AdvancedPlan:
-        if mode not in {StrategyMode.PRESSURE, StrategyMode.FINISH}:
+        if not config.allow_summon_pressure or mode not in {StrategyMode.PRESSURE, StrategyMode.FINISH}:
             return AdvancedPlan()
         if config.boss_summon_item in pioneer.backpack:
             return AdvancedPlan(
@@ -513,6 +571,7 @@ class CompetitionPlanner:
             if assignment.weapon.pos is None or assignment.controller.pos is None:
                 continue
             if assignment.controller.pos.distance_to(assignment.weapon.pos) <= 1:
+                result.append(MoveIntent(assignment.controller.unit_id, (assignment.controller.pos,), priority))
                 continue
             grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(assignment.controller.unit_id,))
             goals = interaction_cells(grid, assignment.weapon.pos)
@@ -526,14 +585,16 @@ class CompetitionPlanner:
         weapons = existing_weapons(turn)
         if weapons:
             distances = []
-            for role in turn.controllable:
-                if role.pos is None:
+            for assignment in assign_controllers(turn, weapons):
+                role, weapon = assignment.controller, assignment.weapon
+                if role.pos.distance_to(weapon.pos) <= 1:
+                    distances.append(0)
                     continue
-                nearest = min(
-                    (role.pos.distance_to(weapon.pos) for weapon in weapons if weapon.pos is not None),
-                    default=0,
-                )
-                distances.append(nearest)
+                grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(role.unit_id,))
+                path = shortest_path(grid, role.pos, interaction_cells(grid, weapon.pos))
+                # Buildings and held controllers can force long detours. A direct
+                # distance underestimates the return time through the rear exit.
+                distances.append(len(path)-1 if path else turn.rounds_until_night)
             return bool(distances) and max(distances) + config.recall_safety_buffer >= turn.rounds_until_night
         station = turn.team_our.station()
         if station is None or station.pos is None:

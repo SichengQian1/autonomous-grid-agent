@@ -141,6 +141,13 @@ class SyntheticWorld:
             elif actor is not None and action == "build":
                 name = command.get("name")
                 target = command["targetPos"][0]
+                anchor = next(r["pos"] for r in self.roles if r["roleType"]=="station")
+                distance = min(max(abs(target["x"]-x),abs(target["y"]-y))
+                               for x in (anchor["x"],anchor["x"]+1)
+                               for y in (anchor["y"]-1,anchor["y"]))
+                if distance != (2 if name=="wall" else 1):
+                    self.feedback[actor_id] = False
+                    continue
                 if name in {"gatling", "railgun", "rocket"} and self.gold >= 25:
                     self.gold -= 25
                     self.roles.append(
@@ -163,7 +170,9 @@ class SyntheticWorld:
                 else:
                     self.feedback[actor_id] = False
             elif actor is not None and action == "collect":
-                actor["backpack"].append("stone")
+                target = command["targetPos"][0]
+                ore = "stone" if target == {"x":5,"y":2} else "iron"
+                actor["backpack"].append(ore)
             elif actor is not None and action == "sell":
                 name = command.get("name", "")
                 quantity = min(command.get("num", 0), actor["backpack"].count(name))

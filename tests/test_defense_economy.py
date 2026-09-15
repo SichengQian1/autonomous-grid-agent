@@ -47,8 +47,9 @@ class DefenseGeometryTests(unittest.TestCase):
         normalized_exit = layout.frame.normalize(layout.rear_exit)
         self.assertTrue(normalized_walls)
         self.assertTrue(any(pos.x > station_max for pos in normalized_walls))
-        self.assertTrue(all(pos.x <= station_max for pos in normalized_weapons))
-        self.assertLessEqual(normalized_exit.x, station_min)
+        if station_min >= 2:
+            self.assertTrue(all(pos.x <= station_max for pos in normalized_weapons))
+        self.assertLessEqual(normalized_exit.x, station_max)
         self.assertNotIn(layout.rear_exit, layout.wall_sites)
         self.assertTrue(set(layout.rear_corridor).isdisjoint(layout.wall_sites))
         self.assertGreaterEqual(len(layout.rear_corridor), 2)

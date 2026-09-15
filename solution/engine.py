@@ -60,12 +60,24 @@ class AgentEngine:
                 execute_command=decision.execute_command,
             )
             self.state.record_decision(turn, accepted)
-            self.telemetry.record_turn(
-                turn,
-                response,
-                elapsed_ms=int((time.monotonic() - started_at) * 1000),
-                dropped_actions=len(issues),
-            )
+            try:
+                if self.telemetry.generation != self.state.generation:
+                    self.telemetry = Telemetry(self.config.telemetry_byte_budget, self.config.telemetry_reserve_bytes,
+                                               generation=self.state.generation)
+                self.telemetry.record_turn(
+                    turn, response,
+                    elapsed_ms=int((time.monotonic() - started_at) * 1000),
+                    dropped_actions=len(issues),
+                    diagnostics={
+                        "taskPhase": str(getattr(self.planner.tasks, "phase", "unknown")),
+                        "taskCommandSteps": getattr(self.planner.tasks, "command_steps", 0),
+                        "failedBuildSites": [[p.x,p.y] for p in sorted(self.state.failed_build_sites)][:32],
+                        "validation": [i.reason for i in issues][:6],
+                        "rearThreat": self.state.rear_threat_observed,
+                    },
+                )
+            except Exception:
+                pass  # Observability failures must not erase valid actions.
             return response
         finally:
             self._lock.release()
