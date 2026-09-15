@@ -7,7 +7,7 @@ from solution.defense import build_defense_layout
 from solution.economy import defense_budget, weapon_build_objectives
 from solution.geometry import Pos
 from solution.models import Turn
-from solution.logistics import plan_upgrade_or_repair
+from solution.logistics import plan_upgrade_or_repair, upgrade_value
 from solution.movement import schedule_moves
 from solution.planner import CompetitionPlanner
 from solution.opponent import OpponentModel, desired_boss_orders
@@ -43,12 +43,16 @@ class DefenseGeometryTests(unittest.TestCase):
         station_min = min(pos.x for pos in normalized_station)
         station_max = max(pos.x for pos in normalized_station)
         normalized_walls = tuple(layout.frame.normalize(pos) for pos in layout.wall_sites)
+        normalized_weapons = tuple(layout.frame.normalize(pos) for pos in layout.weapon_sites[:3])
         normalized_exit = layout.frame.normalize(layout.rear_exit)
         self.assertTrue(normalized_walls)
-        self.assertTrue(all(pos.x > station_max for pos in normalized_walls))
+        self.assertTrue(any(pos.x > station_max for pos in normalized_walls))
+        self.assertTrue(all(pos.x <= station_max for pos in normalized_weapons))
         self.assertLessEqual(normalized_exit.x, station_min)
         self.assertNotIn(layout.rear_exit, layout.wall_sites)
         self.assertTrue(set(layout.rear_corridor).isdisjoint(layout.wall_sites))
+        self.assertGreaterEqual(len(layout.rear_corridor), 2)
+        self.assertTrue(set(layout.rear_corridor).isdisjoint(layout.controller_sites))
 
     def test_upper_left_base_threat_is_on_right(self) -> None:
         self.assert_normalized_orientation(opening_turn(defender=False))
@@ -93,7 +97,7 @@ class ConstructionAndBudgetTests(unittest.TestCase):
     def test_initial_gold_allocates_exactly_three_weapons(self) -> None:
         turn = opening_turn(gold=75)
         objectives = weapon_build_objectives(turn, build_defense_layout(turn), WorldState(), DEFAULT_CONFIG)
-        self.assertEqual(tuple(item.name for item in objectives), ("railgun", "railgun", "rocket"))
+        self.assertEqual(tuple(item.name for item in objectives), ("rocket", "railgun", "rocket"))
         self.assertEqual(len({item.site for item in objectives}), 3)
 
     def test_existing_weapon_is_not_overwritten(self) -> None:
@@ -108,7 +112,7 @@ class ConstructionAndBudgetTests(unittest.TestCase):
         raw["phaseTask"] = ""
         turn = Turn.from_raw(raw)
         objectives = weapon_build_objectives(turn, build_defense_layout(turn), WorldState(), DEFAULT_CONFIG)
-        self.assertEqual(tuple(item.name for item in objectives), ("railgun", "rocket"))
+        self.assertEqual(tuple(item.name for item in objectives), ("rocket", "rocket"))
         self.assertNotIn(Pos(2, 7), {item.site for item in objectives})
 
     def test_failed_build_site_is_blacklisted(self) -> None:
@@ -163,6 +167,35 @@ class ConstructionAndBudgetTests(unittest.TestCase):
         budget = type(defense_budget(turn, DEFAULT_CONFIG))(0, 0, 100, 10)
         plan = plan_upgrade_or_repair(turn, turn.team_our.unit(2), budget)
         self.assertEqual(plan.action.name, "WallFixer")
+
+    def test_upgrade_value_counts_full_heal_and_rocket_level_three_breakpoint(self) -> None:
+        raw = synthetic_turn(round_no=131)
+        rocket = next(item for item in raw["teamOur"]["roles"] if item["roleType"] == "rocket")
+        rocket["health"] = 400
+        turn = Turn.from_raw(raw)
+        damaged = turn.team_our.unit(rocket["id"])
+        healthy_raw = synthetic_turn(round_no=131)
+        next(item for item in healthy_raw["teamOur"]["roles"] if item["roleType"] == "rocket")["health"] = 1500
+        healthy = Turn.from_raw(healthy_raw).team_our.unit(rocket["id"])
+        self.assertGreater(upgrade_value(turn, damaged), upgrade_value(turn, healthy))
+        railgun = turn.team_our.unit(4)
+        self.assertGreater(upgrade_value(turn, damaged), upgrade_value(turn, railgun))
+
+    def test_live_threat_maintenance_will_not_walk_away(self) -> None:
+        raw = synthetic_turn(round_no=71)
+        pioneer = next(item for item in raw["teamOur"]["roles"] if item["roleType"] == "pioneer")
+        pioneer["backpack"].append("WeaponUpgradeVoucher2")
+        pioneer["pos"] = {"x": 10, "y": 9}
+        turn = Turn.from_raw(raw)
+        budget = type(defense_budget(turn, DEFAULT_CONFIG))(0, 0, 100, 10)
+        plan = plan_upgrade_or_repair(
+            turn,
+            turn.team_our.unit(2),
+            budget,
+            allow_move=False,
+            critical_only=True,
+        )
+        self.assertIsNone(plan.move)
 
 
 if __name__ == "__main__":

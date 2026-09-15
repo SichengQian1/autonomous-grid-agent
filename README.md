@@ -45,10 +45,11 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The V1 implementation is active rather than an empty strategy. It includes
+The v0.2 implementation is active rather than an empty strategy. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
-state machines, opponent modes, and evidence-gated summon/cross-map decisions.
+state machines, bounded encoded telemetry, and opponent modes. Summon pressure and
+cross-map attacks are disabled by default while v0.2 prioritizes development.
 Unknown platform mechanics retain safe fallbacks and require practice calibration.
 
 On a Windows development computer, run the service directly from PowerShell:
@@ -73,11 +74,25 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.1`, this produces `submissions/v0/submission-v0.1.tar.gz`. The archive
+For `v0.2`, this produces `submissions/v0/submission-v0.2.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
 major strategy or architecture generation starts `codex/v1`.
+
+## Decode match telemetry
+
+The agent writes bounded `AGLOG2` records to standard error, which the platform may
+expose as its downloadable `.log`. The format is compressed, integrity-checked, and
+reversibly obscured; because its decoder is public, it is not cryptographic secrecy.
+Decode either the original log or a user-compressed `.log.xz` in PowerShell:
+
+```powershell
+python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decoded.jsonl
+```
+
+Task text, prompts, answers, command output, team IDs, names, and URLs are never
+written to these records. Logging is capped so diagnostics cannot grow without bound.
 
 ## Safety
 

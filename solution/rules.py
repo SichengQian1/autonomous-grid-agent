@@ -85,12 +85,12 @@ def is_day_round(round_no: int) -> bool:
 class StrategyConfig:
     normal_turn_budget_seconds: float = NORMAL_TURN_BUDGET_SECONDS
     primary_weapon_loadout: tuple[str, str, str] = (
-        ROLE_RAILGUN,
+        ROLE_ROCKET,
         ROLE_RAILGUN,
         ROLE_ROCKET,
     )
     comparison_weapon_loadout: tuple[str, str, str] = (
-        ROLE_GATLING,
+        ROLE_RAILGUN,
         ROLE_RAILGUN,
         ROLE_ROCKET,
     )
@@ -101,16 +101,20 @@ class StrategyConfig:
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
-    wall_stone_target: int = 8
+    wall_stone_target: int = 10
     task_minimum_timeout: int = 12
     task_return_buffer: int = 4
     treasure_confidence_threshold: float = 0.95
     allow_unverified_night_economy: bool = True
     night_economy_failure_limit: int = 1
-    allow_cross_map_fire: bool = True
-    allow_summon_pressure: bool = True
+    allow_cross_map_fire: bool = False
+    allow_summon_pressure: bool = False
     boss_summon_item: str = "BossRobotSummonOrder"
     minimum_opponent_observations: int = 2
+    task_command_step_limit: int = 2
+    task_command_output_limit: int = 6000
+    telemetry_byte_budget: int = 512 * 1024
+    telemetry_reserve_bytes: int = 64 * 1024
 
 
 DEFAULT_CONFIG = StrategyConfig()

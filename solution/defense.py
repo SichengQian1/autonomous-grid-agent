@@ -34,31 +34,41 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
 
     # User-observed V1 relationship: normalized threat is from +x, and the fixed
     # activity opening is on -x. Exact legal build cells remain platform-unverified.
+    # Weapons live behind the station.  The first three candidates flank the
+    # permanent rear lanes instead of occupying them.  Edge-map fallbacks come
+    # last and are deliberately still no farther forward than the station.
     weapon_norm = (
-        Pos(xmax + 1, ymax),
-        Pos(xmax + 1, mid_y),
-        Pos(xmax + 1, ymin),
-        Pos(xmax + 1, ymax + 1),
-        Pos(xmax + 1, ymin - 1),
-        Pos(xmax + 2, mid_y),
-        Pos(xmax, ymax + 2),
+        Pos(xmin - 2, ymin - 1),
+        Pos(xmin - 2, ymax + 1),
+        Pos(xmin - 3, ymin - 1),
+        Pos(xmin - 3, ymax + 1),
+        Pos(xmin - 1, ymin - 2),
+        Pos(xmin - 1, ymax + 2),
+        Pos(xmin, ymin - 2),
+        Pos(xmin, ymax + 2),
         Pos(xmax, ymin - 2),
-        Pos(xmin, ymax + 1),
-        Pos(xmin, ymin - 1),
-        Pos(xmin - 1, ymax + 1),
-        Pos(xmin - 1, ymin - 1),
+        Pos(xmin, ymin - 3),
+        Pos(xmax, ymin - 3),
+        Pos(xmin, ymax + 3),
+        Pos(xmax, ymax + 3),
     )
     front_x = xmax + 3
-    first_layer = tuple(Pos(front_x, y) for y in range(ymin - 2, ymax + 3))
-    second_layer = tuple(
-        Pos(front_x + 1, y) for y in range(ymin - 1, ymax + 2, 2)
+    # Build the centre of the front face first, then extend it and add side
+    # protection.  A partial rear face is allowed, but the two central rear
+    # lanes below are never candidates for a wall.
+    front_order = (mid_y, ymax, ymin, ymax + 1, ymin - 1, ymax + 2, ymin - 2)
+    first_layer = tuple(Pos(front_x, y) for y in front_order)
+    side_faces = tuple(
+        Pos(x, y)
+        for x in range(front_x - 1, xmin - 2, -1)
+        for y in (ymin - 2, ymax + 2)
     )
-    side_caps = (Pos(xmax + 2, ymin - 2), Pos(xmax + 2, ymax + 2))
-    wall_norm = first_layer + second_layer + side_caps
+    rear_face = tuple(Pos(xmin - 2, y) for y in (ymin - 2, ymax + 2))
+    wall_norm = first_layer + side_faces + rear_face
     if conservative:
         wall_norm += (
-            Pos(xmin - 2, ymin - 2),
-            Pos(xmin - 2, ymax + 2),
+            Pos(xmin - 3, ymin - 2),
+            Pos(xmin - 3, ymax + 2),
         )
 
     neutral = {frame.normalize(zone.pos) for zone in turn.map_info.zones if zone.pos is not None}
@@ -67,28 +77,23 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         raw = frame.denormalize(pos)
         return turn.map_info.contains(raw) and pos not in normalized_station and pos not in neutral
 
-    exit_candidates = (
-        Pos(xmin - 2, mid_y),
-        Pos(xmin - 1, ymin - 2),
-        Pos(xmin - 1, ymax + 2),
-        Pos(xmin, ymin - 2),
-        Pos(xmin, ymax + 2),
+    rear_lanes = (mid_y, min(mid_y + 1, ymax))
+    corridor_candidates = tuple(
+        Pos(x, y)
+        for x in (xmin - 1, xmin - 2)
+        for y in rear_lanes
     )
-    exit_norm = next((pos for pos in exit_candidates if legal_normalized(pos)), None)
-    if exit_norm is None:
-        corridor_norm: tuple[Pos, ...] = ()
-    elif exit_norm.x < xmin:
-        corridor_norm = (
-            exit_norm,
-            Pos(xmin - 1, mid_y),
-            Pos(xmin, mid_y),
+    corridor_norm = tuple(pos for pos in corridor_candidates if legal_normalized(pos))
+    # On an unexpectedly edge-hugging map retain a two-cell side opening.  This
+    # is a compatibility fallback, not a second side-specific strategy.
+    if len(corridor_norm) < 2:
+        side_candidates = tuple(
+            Pos(x, ymin - offset)
+            for offset in (1, 2)
+            for x in (xmin, xmax)
         )
-    else:
-        step_y = 1 if exit_norm.y < ymin else -1
-        corridor_norm = (
-            exit_norm,
-            Pos(exit_norm.x, exit_norm.y + step_y),
-        )
+        corridor_norm = tuple(pos for pos in side_candidates if legal_normalized(pos))[:2]
+    exit_norm = corridor_norm[0] if corridor_norm else None
     forbidden = set(normalized_station) | set(corridor_norm)
 
     unique_weapon_norm: list[Pos] = []
@@ -100,9 +105,11 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         ):
             unique_weapon_norm.append(pos)
     weapon_sites = tuple(frame.denormalize(pos) for pos in unique_weapon_norm)
-    wall_sites = tuple(
-        frame.denormalize(pos) for pos in wall_norm if legal_normalized(pos) and pos not in forbidden
-    )
+    unique_wall_norm: list[Pos] = []
+    for pos in wall_norm:
+        if legal_normalized(pos) and pos not in forbidden and pos not in unique_wall_norm:
+            unique_wall_norm.append(pos)
+    wall_sites = tuple(frame.denormalize(pos) for pos in unique_wall_norm)
     rear_corridor = tuple(
         frame.denormalize(pos)
         for pos in corridor_norm
@@ -183,11 +190,13 @@ def _controller_sites(
     for weapon in weapon_sites[:3]:
         candidates = [
             pos for pos in weapon.neighbours()
-            if turn.map_info.contains(pos) and pos not in blocked and pos not in result
+            if turn.map_info.contains(pos)
+            and pos not in blocked
+            and pos not in result
+            and pos not in corridor
         ]
         candidates.sort(
             key=lambda pos: (
-                0 if pos in corridor else 1,
                 turn.coordinate_frame.normalize(pos).x,
                 pos.y,
             )

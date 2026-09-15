@@ -9,15 +9,14 @@ match logs here.
 
 - Target Python 3.11.10 with standard-library runtime code.
 - Optimize match win rate under a zero-exception safety constraint.
-- Initial weapon experiment: two railguns and one rocket launcher.
-- First comparison: one gatling, one railgun, and one rocket launcher.
+- v0.2 primary weapon experiment: two rocket launchers and one railgun.
+- First comparison: two railguns and one rocket launcher.
 - Treat task score and income as primary differentiators when defensive readiness
   remains safe.
-- Include task, treasure, opponent modeling, cross-map score evaluation, and
-  conditional summon pressure in the V1 architecture. Each high-risk action remains
-  evidence-gated and falls back safely when its mechanics are unverified.
-- Concentrate wall construction on the observed threat side and leave a fixed opening
-  on the opposite side for role traffic. Dynamic remove/rebuild is outside V1.
+- Keep opponent modeling in the architecture, but v0.2 disables cross-map fire and
+  summon pressure until the development/defense baseline is calibrated.
+- Place weapons behind the base. Build the centre-front wall first, add side cover,
+  and reserve two permanent rear corridor cells. Dynamic remove/rebuild is outside V1.
 
 ## Source and Repository Boundaries
 
@@ -79,12 +78,62 @@ After a change:
 - `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
+- `solution/telemetry.py`: bounded sanitized `AGLOG2` records.
 
 The V1 planner is active. It produces validated construction, movement, economy,
 recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. An
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-15 - v0.2 development-first strategy and observable runtime
+
+Changes:
+
+- Changed the primary opening to rocket/railgun/rocket and retained the earlier
+  railgun/railgun/rocket composition as the comparison variant.
+- Moved preferred weapon cells behind the normalized base, added edge-map fallbacks,
+  ordered walls centre-front first, and reserved a two-cell rear traffic corridor.
+- Added upgrade valuation that includes the user-observed full heal, prioritizes the
+  level-three rocket breakpoint, and permits only released roles to maintain at night.
+- Reworked active tasks into inspect/LLM/command/LLM-synthesis/submit stages with
+  bounded output, repeated-response deduplication, step limits, and command guardrails.
+- Added capped sanitized `AGLOG2` turn telemetry plus a read-only decoder for `.log`
+  and `.log.xz`. This is reversible obfuscation, not cryptographic secrecy.
+- Disabled Boss orders, cross-map attacks, blind treasure probing, and wall removal
+  in the default v0.2 configuration.
+
+Reason:
+
+- High-score observations make early task throughput, rocket reach, deliberate walls,
+  repair/upgrade timing, and detailed replay evidence higher-value than speculative
+  opponent pressure. Rear weapons reduce replacement risk; fixed lanes reduce traffic
+  deadlocks; upgrade-healing turns damaged buildings into higher-value upgrade targets.
+
+Verification boundary:
+
+- 97 standard-library unit tests pass under Python 3.14.6, including the original
+  30 protocol-foundation tests and new geometry, task, upgrade, and telemetry cases.
+- Both 1,300-round synthetic sides finish with zero invalid responses, zero failed
+  actions, three weapons, non-negative gold, and sub-5 ms observed decision peaks.
+- The source tree and a clean extraction of `submission-v0.2.tar.gz` both start and
+  return valid JSON through the HTTP smoke test.
+- The v0.2 archive SHA-256 is
+  `5f78ba161763ee410e9339c51aa3188c638ad41add3b7f82072a246c75a06fc0`.
+- Unit tests and synthetic replay validate our protocol, geometry, scheduling,
+  task-state, logging-codec, and safety behavior only.
+- Exact build legality, real routing, upgrade settlement, night activity, task judging,
+  weapon effectiveness, and match strength remain `UNVERIFIED_PLATFORM_BEHAVIOR`
+  until a v0.2 platform log is returned.
+
+Workflow:
+
+1. Build `submissions/v0/submission-v0.2.tar.gz` from `VERSION`.
+2. Upload that exact archive and run one low-stakes simulation.
+3. Download the `.log`, optionally compress it to `.log.xz`, and decode it with
+   `tools/diagnostics/decode_match_log.py`.
+4. Compare construction results, task cycle time, first-night damage, upgrade actions,
+   error codes, and final score before changing v0.2 defaults.
 
 ### 2026-09-15 - v0.1 branch and reproducible submission package
 

@@ -24,10 +24,11 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- First weapon composition to test: two railguns and one rocket launcher.
-- Keep a balanced gatling/railgun/rocket composition as the first comparison.
-- Concentrate walls on the observed threat lane and keep a fixed opening on the
-  opposite side for role traffic.
+- v0.2 primary composition: two rocket launchers and one railgun.
+- Keep two railguns and one rocket launcher as the first comparison.
+- Place weapons behind the base, flanking rather than occupying the rear traffic
+  corridor. Build the centre-front wall first, then front extensions and side walls.
+- Keep two permanent rear corridor cells open for role traffic.
 - Do not dynamically remove and rebuild the opening in V1. Reconsider only if
   platform evidence shows flanking or a changed spawn pattern.
 - Use tasks as a primary score and income engine when return-to-base safety permits.
@@ -41,7 +42,9 @@ Use a lexicographic decision hierarchy:
 - A global-range weapon may be able to earn score from robots targeting the opponent.
 - Ordinary projectile paths may interact with friendly walls differently from rockets.
 - A fixed rear opening may retain safe role access without creating a robot route.
-- Upgrading a damaged structure may be more valuable than upgrading it immediately because upgrades restore health.
+- `USER_OBSERVED`: upgrading a base, wall, or weapon restores it to full health.
+  v0.2 therefore scores both the upgrade breakpoint and restored health, while still
+  rushing one level-three rocket for its global-range breakpoint.
 - Summon orders are profitable only when the opponent is near a defensive threshold.
 
 Each hypothesis must be converted into a small platform experiment and recorded in `docs/experiments.md` before it becomes a default strategy.
@@ -55,7 +58,7 @@ telemetry promotes them to a runtime observation.
 
 ### Opening
 
-- Establish three weapons.
+- Establish two rockets and one railgun behind the base.
 - Start stone collection for critical walls.
 - Send the pioneer toward the highest-value safe task opportunity.
 - Learn initial robot spawn and path behavior.
@@ -67,6 +70,16 @@ telemetry promotes them to a runtime observation.
 - Upgrade according to measured wave pressure.
 - Accumulate and verify treasure constraints.
 - Estimate opponent pressure from globally visible information.
+
+## v0.2 Safety Gates
+
+- Boss-order purchases and use are disabled.
+- Cross-map attacks are disabled even when `targetTeam` is present.
+- Blind treasure probes are disabled; an attempt requires complete high-confidence
+  coordinates, day, and non-empty owned items.
+- Wall removal is never planned.
+- Night maintenance uses released roles only. While threats remain, a role may use
+  an adjacent critical item but may not walk away from its weapon.
 
 ### Endgame
 

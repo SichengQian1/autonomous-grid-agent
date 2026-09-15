@@ -79,7 +79,7 @@ class CompetitionPlanner:
             if turn.is_day:
                 decision = self._day(turn, state, llm_budget, config, mode, budget)
             else:
-                decision = self._night(turn, state, llm_budget, config, mode, threats)
+                decision = self._night(turn, state, llm_budget, config, mode, threats, budget)
         except Exception as error:
             LOGGER.warning(
                 "primary planner failed (%s); falling back to basic defense",
@@ -266,6 +266,7 @@ class CompetitionPlanner:
         config: StrategyConfig,
         mode: StrategyMode,
         threats: tuple,
+        budget: DefenseBudget,
     ) -> Decision:
         weapons = existing_weapons(turn)
         combat_weapons = tuple(
@@ -336,10 +337,30 @@ class CompetitionPlanner:
         if (
             config.allow_unverified_night_economy
             and not state.night_economy_disabled
-            and len(active_assignments) < len(assignments)
+            and released
         ):
+            # Active controllers are never borrowed.  With live threats, a
+            # released/cooling controller may only perform an adjacent critical
+            # repair so it cannot wander away before its weapon is ready.
+            for role in released:
+                maintenance = plan_upgrade_or_repair(
+                    turn,
+                    role,
+                    budget,
+                    config,
+                    allow_move=not threats,
+                    critical_only=bool(threats),
+                )
+                if maintenance.action is not None:
+                    actions.append(maintenance.action)
+                    used_controllers.add(role.unit_id)
+                    break
+                if maintenance.move is not None:
+                    intents.append(maintenance.move)
+                    used_controllers.add(role.unit_id)
+                    break
             pioneer = next((role for role in released if role.role_type == ROLE_PIONEER), None)
-            if pioneer is not None:
+            if pioneer is not None and pioneer.unit_id not in used_controllers:
                 advanced = self._safe_task_plan(
                     turn,
                     state,

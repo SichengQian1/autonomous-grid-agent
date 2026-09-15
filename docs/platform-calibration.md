@@ -40,7 +40,15 @@ PowerShell:
 python .\tools\diagnostics\summarize_match_log.py "D:\path\to\match-log.jsonl"
 ```
 
-Paste only the bounded JSON summary. The tool reads at most 16 MiB and 2,000 records
+For a v0.2 agent `.log` or `.log.xz`, decode the private-format records first:
+
+```powershell
+python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decoded.jsonl
+```
+
+Paste only the bounded JSON summary. The tools read bounded records and omit team
+identifiers, names, prompts, answers, command output, and full error descriptions.
+The generic summarizer reads at most 16 MiB and 2,000 records
 by default and omits team IDs, team names, prompts, raw error descriptions, and full
 logs. If the export format is not recognized, share only a screenshot of the log
 format or a few manually redacted structural lines so the parser can be adapted.

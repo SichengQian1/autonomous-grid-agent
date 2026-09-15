@@ -11,6 +11,7 @@ from .planner import CompetitionPlanner
 from .protocol import safe_response, serialize_decision
 from .rules import DEFAULT_CONFIG, StrategyConfig
 from .state import LlmBudget, WorldState
+from .telemetry import Telemetry
 from .validation import ActionValidator
 
 
@@ -24,6 +25,10 @@ class AgentEngine:
         self.llm_budget = LlmBudget()
         self.validator = ActionValidator()
         self.planner = CompetitionPlanner()
+        self.telemetry = Telemetry(
+            config.telemetry_byte_budget,
+            config.telemetry_reserve_bytes,
+        )
         self._lock = threading.Lock()
 
     def decide(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -55,6 +60,12 @@ class AgentEngine:
                 execute_command=decision.execute_command,
             )
             self.state.record_decision(turn, accepted)
+            self.telemetry.record_turn(
+                turn,
+                response,
+                elapsed_ms=int((time.monotonic() - started_at) * 1000),
+                dropped_actions=len(issues),
+            )
             return response
         finally:
             self._lock.release()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from solution.combat import ControllerAssignment, controllers_needed, plan_attacks
 from solution.defense import own_threats
@@ -134,14 +135,16 @@ class OpponentTests(unittest.TestCase):
         raw["weaponShopList"].append({"name": "BossRobotSummonOrder", "price": 200})
         turn = Turn.from_raw(raw)
         opponent = OpponentModel(observations=3, late_threat_turns=2)
-        self.assertEqual(desired_boss_orders(turn, DefenseBudget(0, 25, 500, 9), opponent, DEFAULT_CONFIG), 1)
+        enabled = replace(DEFAULT_CONFIG, allow_summon_pressure=True)
+        self.assertEqual(desired_boss_orders(turn, DefenseBudget(0, 25, 500, 9), opponent, enabled), 1)
 
     def test_two_boss_burst_requires_more_weakness_and_capital(self) -> None:
         raw = synthetic_turn(round_no=1)
         raw["weaponShopList"].append({"name": "BossRobotSummonOrder", "price": 200})
         turn = Turn.from_raw(raw)
         opponent = OpponentModel(observations=5, late_threat_turns=4)
-        self.assertEqual(desired_boss_orders(turn, DefenseBudget(0, 25, 500, 9), opponent, DEFAULT_CONFIG), 2)
+        enabled = replace(DEFAULT_CONFIG, allow_summon_pressure=True)
+        self.assertEqual(desired_boss_orders(turn, DefenseBudget(0, 25, 500, 9), opponent, enabled), 2)
 
     def test_mode_switches_to_defend_on_critical_margin(self) -> None:
         turn = combat_turn()

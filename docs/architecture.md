@@ -53,7 +53,8 @@ The active V1 code loop is implemented:
 - defense-aware economy, construction, upgrade, and recall planning
 - controller assignment, partial release, and projected-damage targeting
 - task, bounded LLM/sandbox, news, and confidence-gated treasure state
-- opponent pressure modes and reserve-gated summon/cross-map decisions
+- opponent pressure modes with v0.2 summon/cross-map safety gates disabled
+- capped, integrity-checked `AGLOG2` telemetry and a local `.log`/`.log.xz` decoder
 - two-side ten-day synthetic regression and bounded log summarization
 
 Platform-dependent mechanics remain configurable and feedback-gated. Synthetic
@@ -70,6 +71,7 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `tasking.py`: task, LLM, sandbox, and treasure state machines
 - `opponent.py`: global modes and Boss threshold evaluation
 - `planner.py`: full-match orchestration and module degradation
+- `telemetry.py`: sanitized bounded event encoding and integrity checks
 
 ## Design Rules
 

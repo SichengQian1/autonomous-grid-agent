@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from dataclasses import replace
 
 from solution.engine import AgentEngine
 from solution.geometry import Pos
@@ -15,6 +16,7 @@ from solution.tasking import (
     parse_sandbox_result,
     parse_structured_llm,
     safe_calculation_command,
+    safe_task_command,
 )
 from tests.helpers import synthetic_turn
 
@@ -27,6 +29,38 @@ class TaskStateTests(unittest.TestCase):
     def test_safe_calculation_command_is_narrow(self) -> None:
         self.assertEqual(safe_calculation_command('python3 -c "print(2+3)"'), 'python3 -c "print(2+3)"')
         self.assertEqual(safe_calculation_command("python3 -c \"__import__('os').system('id')\""), "")
+
+    def test_task_command_guard_allows_local_work_but_blocks_dangerous_commands(self) -> None:
+        self.assertTrue(safe_task_command("find /tmp/selfEvolutionTask -type f"))
+        self.assertEqual(safe_task_command("rm -rf /tmp/selfEvolutionTask"), "")
+        self.assertEqual(safe_task_command("curl https://example.com"), "")
+
+    def test_named_task_file_is_probed_before_first_llm_call(self) -> None:
+        raw = synthetic_turn(round_no=10)
+        raw["phaseTask"] = "Read puzzle.md and answer the question."
+        turn = Turn.from_raw(raw)
+        state = WorldState()
+        state.ingest(turn)
+        plan = TaskManager().plan(turn, state, LlmBudget(), DEFAULT_CONFIG, turn.team_our.unit(2))
+        self.assertIn("/tmp/selfEvolutionTask", plan.execute_command)
+        self.assertEqual(plan.prompt, "")
+
+    def test_sandbox_output_is_synthesized_not_submitted_raw(self) -> None:
+        raw = synthetic_turn(round_no=11)
+        raw["lastCmdResult"] = "[exitCode:0]\nraw evidence"
+        turn = Turn.from_raw(raw)
+        state = WorldState()
+        state.ingest(turn)
+        manager = TaskManager(
+            last_generation=state.generation,
+            phase=TaskPhase.WAITING_COMMAND,
+            command_steps=1,
+        )
+        budget = LlmBudget()
+        budget.refresh(turn)
+        plan = manager.plan(turn, state, budget, DEFAULT_CONFIG, turn.team_our.unit(2))
+        self.assertIsNone(plan.action)
+        self.assertIn("raw evidence", plan.prompt)
 
     def test_sandbox_timeout_and_truncation(self) -> None:
         timeout = parse_sandbox_result("[TIMEOUT]\npartial")
@@ -148,7 +182,7 @@ class ActivePlannerTests(unittest.TestCase):
         raw["phaseTask"] = ""
         raw["robot"]["roles"][0]["targetTeam"] = "defender"
         raw["robot"]["roles"][0]["pos"] = {"x": 7, "y": 2}
-        response = AgentEngine().decide(raw)
+        response = AgentEngine(replace(DEFAULT_CONFIG, allow_cross_map_fire=True)).decide(raw)
         self.assertTrue(any(
             action["action"] == "attack"
             for action in response["roleCommandMap"].values()
