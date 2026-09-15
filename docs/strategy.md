@@ -27,12 +27,16 @@ Use a lexicographic decision hierarchy:
 - First weapon composition to test: two railguns and one rocket launcher.
 - Keep a balanced gatling/railgun/rocket composition as the first comparison.
 - Build walls according to observed threat lanes rather than a permanently fixed template.
+- Keep the legacy centre-facing sites as the default. The optional `frontline`
+  layout places the rocket rearward, line weapons on side-rear firing lanes, and
+  a short front wall with rear-side gates. Flank cells may be filled before the
+  frontage target when crowding pressure is observed. This remains a candidate.
 - Use tasks as a primary score and income engine when return-to-base safety permits.
 
 ## Unverified High-Value Hypotheses
 
 - A global-range weapon may be able to earn score from robots targeting the opponent.
-- Ordinary projectile paths may interact with friendly walls differently from rockets.
+- Projectile interaction with weapon buildings remains unverified; walls and bases permit weapon fire.
 - A dynamically opened and closed wall gate may outperform a permanent opening.
 - Upgrading a damaged structure may be more valuable than upgrading it immediately because upgrades restore health.
 - Summon orders are profitable only when the opponent is near a defensive threshold.
@@ -93,3 +97,8 @@ LLM confidence alone does not establish that its interpretation is correct.
 Safe nighttime treasure windows are supported. Successful or already-empty
 treasure feedback persists until the next match and prevents further probing.
 See `baseline.md` for verification scope and remaining platform checks.
+
+Walls and bases block movement but do not block weapon trajectories (user-confirmed).
+Keep weapon-building occlusion configurable and conservative. Prioritize actual
+front/flank pressure with a shared construction order; retain built-wall classes
+for maintenance and apply the wall cap to living plus committed structures.

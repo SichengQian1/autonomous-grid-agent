@@ -55,7 +55,8 @@ high confidence. Arbitrary natural-language interpretation still needs live chec
 - Controllers must be alive and adjacent; a controller cannot also act as a human.
 
 Ray-square boundary contacts and building blocking are conservative assumptions.
-The default treats buildings as projectile blockers and preserves forward lanes.
+Walls and bases never block weapon fire. The default conservatively treats weapon
+buildings as projectile blockers; movement still treats walls and bases as occupied cells.
 `projectile_building_blocking` allows comparison after platform verification.
 Runtime positive range and power are required; the baseline does not invent a
 range for an unrecognized full-map sentinel or guess an absent weapon power.
@@ -90,6 +91,10 @@ profitability need live tests.
 
 `AGENT_CONFIG=config/baseline.json` uses two railguns and one rocket.
 `AGENT_CONFIG=config/balanced.json` selects the comparison composition.
+`AGENT_CONFIG=config/frontline.json` keeps that weapon pair and enables the
+optional front-facing layout plus wall maintenance. `frontline-balanced.json`
+does the same for the gatling/railgun/rocket comparison. Default configs stay
+on the legacy centre-facing sites. Frontline is a candidate, not a win-rate claim.
 All tunable defaults live in `solution/rules.py`; JSON overrides are type checked.
 A false `enabled` switch restores the safe empty strategy.
 
@@ -98,9 +103,23 @@ per line. It reads at most 100 records by default, eight MiB per record and 64 M
 overall. Output is a bounded summary of action counts, errors, timing and a content
 checksum. It writes nothing and never executes sandbox commands or calls a service.
 
+`tools/diagnostics/defense_layout.py` prints a bounded ASCII summary of a synthetic
+left/right layout. `--verify` exits non-zero when hard constraints fail. Optional
+local JSON is size-capped and is never fetched from the network.
+
 ## Verification limits
 
 The synthetic transition harness models movement, construction, trading and
 upgrades. It is not a judge, combat simulator or win-rate benchmark. Combat has
 separate deterministic unit scenarios. Official payload compatibility, real task
 success, target-machine timing and match strength require further evidence.
+
+## Frontline audit corrections
+
+Wall layouts retain built-wall membership and a separate execution order. Actual
+living walls plus committed builds enforce `max_walls`; a hot front flank can
+precede unfinished frontage. Maintenance distinguishes travel to a shop, a sent
+purchase and item delivery, with bounded receipt waiting and retry after failure.
+Every wall purchase preserves current base/medicine/weapon cash needs. Repair and
+upgrade ranking compares danger, short-term survival and HP gained per gold plus
+estimated role-action cost; `WALL_ACTION_GOLD_EQUIVALENT` is an experimental weight.

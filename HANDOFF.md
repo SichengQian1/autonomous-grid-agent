@@ -55,9 +55,117 @@ After a change:
 
 The baseline planner is enabled. See `docs/baseline.md` for strategy behavior,
 configuration, validation evidence and remaining assumptions. New modules separate
-navigation, defense, combat, economy, task handling and shared planning context.
+navigation, defense, layout, maintenance, combat, economy, task handling and
+shared planning context.
 
 ## Change Log
+
+### 2026-09-15 - Commit frontline work
+
+- User authorized local commits. Grouped implementation, configurations, tests
+  and the layout diagnostic in `0fdaf9e`; strategy and handoff documents follow
+  in a separate commit.
+- Inspected changed files and diffs. Official/local materials remain ignored and
+  untracked; fixtures are synthetic. No credentials or private paths were found
+  in the pending content. No push, upload or official match was performed.
+- Code is unchanged from the verification recorded below: 138 tests, compilation,
+  four layout checks and 20 HTTP checks passed.
+
+### 2026-09-15 - Bases also permit weapon fire
+
+- User confirmed bases, like walls, do not block weapon trajectories. The shared
+  projectile blocker helper excludes both types for combat and layout coverage.
+  Their footprints still block movement; weapon-building occlusion remains
+  configurable and unverified. This supersedes earlier base-occlusion assumptions.
+- Added a regression covering railgun/gatling shots through friendly/enemy bases,
+  layout coverage and unchanged movement occupancy. All four subcases failed
+  before the fix and now pass.
+- All 138 tests and bytecode compilation passed under Python 3.11.15. Both
+  frontline configurations passed left/right layout diagnostics. All four configs
+  passed startup plus five HTTP checks each; test servers were stopped.
+- Updated strategy, architecture and implementation-plan documents. No commit,
+  push or official match was run; match strength and the exact target runtime
+  remain unverified.
+
+### 2026-09-15 - Fix six frontline review findings
+
+Changes:
+
+- Separate travel to the shop from a submitted purchase. Only a committed buy
+  reserves purchase cash; its owner can continue travel, retry failures and deliver
+  the item. Unknown receipts and delivery jobs expire without permanent blocking.
+- Check live medicine, base-emergency and unfinished-weapon reserves on every wall
+  purchase, including current-turn commitments and unresolved earlier purchases.
+- User confirmed walls do not block weapon trajectories. `ballistics.py` now
+  supplies the same wall-free projectile blockers to combat and layout. Walls
+  remain movement obstacles; other buildings retain configurable occlusion.
+- Keep existing walls in geometric membership, separate `wall_order` from those
+  categories, and enforce the cap against living plus committed wall builds.
+- Rank repair/upgrade work by danger, short-term survival and recovery per gold
+  plus estimated role-action cost. Useful carried supplies remain eligible even
+  when no longer listed in the shop. The action-cost weight is experimental.
+- Preserve risk-based front/flank construction order through actual execution;
+  pressured near-front flanks can precede unfinished frontage on either side.
+
+Verification:
+
+- Seven minimal regression cases failed before fixes; 13 added tests now cover
+  those findings plus purchase failure/timeout, engine-level delivery, concurrent
+  wall reservations, emergency cash and mirrored flank construction.
+- All 137 tests and bytecode compilation passed under Python 3.11.15.
+- Both frontline configurations passed left/right layout diagnostics. Baseline,
+  balanced, frontline and frontline-balanced each passed startup plus five HTTP
+  checks (day, night, malformed JSON, non-object body and empty object).
+- Test servers were stopped. No commit, push, upload or official match was run.
+
+Still unverified: exact target environment, non-wall building occlusion, actual
+robot interception by walls, and competitive outcomes. Synthetic tests establish
+the repaired action/state behavior, not win rate.
+
+### 2026-09-15 - Frontline defense layout and wall maintenance
+
+Changes and reasons:
+
+- Added an opt-in `frontline` layout that infers a horizontal approach from the
+  base footprint, jointly places rocket/rear and line-weapon side-rear sites,
+  and builds a short front wall segment with rear-side gates.
+- Wall repair/upgrade ranking uses observed damage and nearby pressure, with a
+  daily gold fraction for wall items and pending delivery state. Night
+  maintenance never takes a committed controller and does not change release
+  proofs.
+- Default `legacy` behaviour is unchanged. `config/frontline.json` and
+  `config/frontline-balanced.json` enable the candidate mode.
+
+Verification:
+
+- 124 tests passed under local Python 3.11.15, including the previous 99 and new
+  layout/maintenance/configuration cases. Bytecode compilation passed.
+- Layout diagnostics with `--verify` passed for both sides on both frontline
+  configs. First synthetic layout search was about 33 ms locally.
+- `run.sh` HTTP smoke passed for baseline, frontline, and frontline-balanced;
+  malformed JSON and non-object bodies still returned `{"roleCommandMap": {}}`.
+  Local test servers were terminated after verification.
+- No official match, submission, commit or push was performed.
+
+Remaining evidence:
+
+- Front walls are not a verified damage barrier. Walls are now confirmed
+  transparent to weapon trajectories; other building occlusion stays conservative.
+- Direction priors come from user observation, not a proven spawn table.
+- Synthetic tests do not establish match win rate. Platform paired comparisons
+  need a separate authorization.
+
+### 2026-09-15 - Frontline defense implementation plan
+
+- Added `docs/frontline-defense-implementation-plan.md` for the next implementation
+  handoff: observed enemy direction, shared wall/weapon layout, maintenance budgets,
+  delivery feedback, configuration, regression scenarios and acceptance commands.
+- This is a plan only. The current strategy and configuration remain unchanged.
+- Included crowding-driven spillover near the front flanks: those walls may be
+  built before the frontage is complete and maintained by observed pressure,
+  without treating lateral movement as a new global attack direction.
+- Front-wall interception and building/projectile interaction still need platform
+  evidence; the proposed mode retains legacy comparison and conservative fallbacks.
 
 ### 2026-09-14 - Five baseline audit fixes
 

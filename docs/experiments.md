@@ -44,11 +44,26 @@ What exact hypothesis is being tested?
 ## Experiment Queue
 
 1. Two railguns plus one rocket versus the balanced three-weapon composition.
-2. Projectile interaction with friendly walls.
+2. Projectile interaction with weapon buildings; walls and bases are confirmed transparent to weapon fire.
 3. Kill ownership for robots targeting the opponent.
 4. Dynamic gate versus permanent opening.
 5. Early weapon upgrade versus early base upgrade.
 6. Summon-order threshold behavior.
+7. Same approach lane with and without a short front wall; then front-only versus
+   front plus near-front flanks under a dense wave. Record pathing, first target,
+   base damage and extra stone/gold cost. Do not treat wall count as the metric.
+8. Railgun/gatling shots with no blocker, a transparent wall on the ray, and the station on
+   the ray, using the same robot cell. Both should preserve damage; verify separately
+   with a weapon building on the ray. Record health change and action results.
+9. Forward versus side-rear tower cells: time to first fire, rocket cooldown
+   gaps, controller hits and base damage.
+10. Repair versus upgrade on a pressured damaged wall: gold spent and extra
+    rounds the wall actually lasts.
+
+These mechanism checks need platform authorization. Local synthetic tests do not
+answer them. If a front wall does not intercept, or a rearward tower loses
+core coverage, keep the candidate configs and shrink to pressure-based
+maintenance only.
 
 ## Baseline local verification - 2026-09-14
 
@@ -69,6 +84,6 @@ What exact hypothesis is being tested?
 ## Added platform checks
 
 - Confirm weapon `attackPower` is per projectile for gatling and rocket volleys.
-- Confirm ray-square edge contacts, building occlusion and full-map range encoding.
+- Confirm ray-square edge contacts, weapon-building occlusion and full-map range encoding.
 - Compare nighttime supply runs enabled/disabled at matched maps and sides.
 - Verify sandbox resource limits and task/treasure extraction on actual contracts.
