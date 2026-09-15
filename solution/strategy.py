@@ -7,9 +7,18 @@ from .combat import CombatPlanner
 from .defense import base_cells, controller_assignments, defensive_route
 from .economy import EconomyPlanner
 from .geometry import footprint_distance
+from .layout import observe_defense, plan_layout
+from .maintenance import rank_wall_work, try_jobs
 from .models import Turn, Unit
 from .planning import PlanningContext
-from .rules import DAY_ROUNDS, ROUNDS_PER_DAY, ROLE_PIONEER, WEAPON_BUILD_COST, StrategyConfig
+from .rules import (
+    DAY_ROUNDS,
+    DEFENSE_LAYOUT_FRONTLINE,
+    ROUNDS_PER_DAY,
+    ROLE_PIONEER,
+    WEAPON_BUILD_COST,
+    StrategyConfig,
+)
 from .state import LlmBudget, WorldState
 from .tasks import TaskManager
 
@@ -28,6 +37,10 @@ class BaselinePlanner:
             self.generation = state.generation
         self.tasks.observe(turn)
         ctx = PlanningContext(turn, config, state, deadline)
+        observe_defense(turn, state.defense, config, state.previous_actions)
+        if config.defense_layout == DEFENSE_LAYOUT_FRONTLINE:
+            ctx.layout = plan_layout(turn, state.defense, config, deadline)
+            ctx.wall_jobs = rank_wall_work(ctx, ctx.layout)
         # Consume next-turn news before acting, including replies across dusk.
         self.tasks.consume_news(ctx)
         station = turn.team_our.station()
@@ -71,7 +84,7 @@ class BaselinePlanner:
             if role.unit_id in occupied_roles:
                 continue
             weapon = assignments.get(role.unit_id)
-            home = defensive_route(turn, ctx.nav, role, weapon)
+            home = defensive_route(turn, ctx.nav, role, weapon, ctx.layout)
             return_distance = home.distance if home else 10**6
             must_return = ((turn.is_day and remaining_day <= return_distance + config.return_margin)
                            or (not turn.is_day and role.unit_id not in released))
@@ -93,13 +106,22 @@ class BaselinePlanner:
                         self.tasks.submitted_this_task = True
                 # Moving away would end the active task. Healing above remains legal.
                 continue
-            if turn.is_day and economy.build(role):
+            frontline = config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and ctx.layout is not None
+            if turn.is_day and not frontline and economy.build(role):
+                continue
+            if turn.is_day and frontline and economy.build_weapons(role):
+                continue
+            if frontline and try_jobs(ctx, role, ctx.wall_jobs, max_trip, urgent=True):
+                continue
+            if turn.is_day and frontline and economy.build_planned_walls(role):
                 continue
             if role.role_type == ROLE_PIONEER:
                 if self._treasure(ctx, role, max_trip):
                     continue
                 if turn.is_day and self._accept_task(ctx, role, return_distance, remaining_day):
                     continue
+            if frontline and try_jobs(ctx, role, ctx.wall_jobs, max_trip, urgent=False):
+                continue
             if economy.supplies(role, max_trip):
                 continue
             if economy.gather_or_sell(role, max_trip):

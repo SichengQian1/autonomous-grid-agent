@@ -1,0 +1,19 @@
+{
+  "primary_weapon_loadout": ["gatling", "railgun", "rocket"],
+  "night_gathering": true,
+  "night_small_wave": 3,
+  "night_trip_radius": 8,
+  "return_margin": 5,
+  "allow_score_stealing": false,
+  "projectile_building_blocking": true,
+  "defense_layout": "frontline",
+  "front_direction": "auto",
+  "front_wall_target_count": 4,
+  "wall_maintenance_enabled": true,
+  "wall_budget_fraction": 0.25,
+  "wall_emergency_horizon": 3,
+  "wall_observation_history_rounds": 130,
+  "front_observation_limit": 64,
+  "layout_candidate_limit": 128,
+  "layout_search_budget_ms": 100
+}

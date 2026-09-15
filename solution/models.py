@@ -88,10 +88,16 @@ class Unit:
     backpack: tuple[str, ...] = ()
     level: int = 0
     cooldown: int = 0
+    max_health: int = 0
 
     @classmethod
     def from_raw(cls, raw: object) -> Unit:
         data = _mapping(raw)
+        max_health = 0
+        for key in ("maxHealth", "maxHp", "healthMax"):
+            if key in data:
+                max_health = max(0, _integer(data.get(key)))
+                break
         return cls(
             unit_id=_integer(data.get("id"), -1),
             pos=Pos.from_raw(data.get("pos")),
@@ -105,6 +111,7 @@ class Unit:
             ),
             level=max(0, _integer(data.get("level"))),
             cooldown=max(0, _integer(data.get("cooldown"))),
+            max_health=max_health,
         )
 
     @property

@@ -4,10 +4,17 @@ from collections import Counter
 
 from .actions import Action, ActionType
 from .defense import base_cells, weapon_sites, wall_sites
-from .geometry import Pos, footprint_distance, neighbours, ray_entry
+from .geometry import Pos, footprint_distance, neighbours
+from .layout import remaining_weapon_placements, remaining_wall_sites
 from .models import Unit
 from .planning import PlanningContext
-from .rules import RESOURCE_ZONE_TYPES, ROLE_ROCKET, ROLE_WORKER, WEAPON_BUILD_COST
+from .rules import (
+    DEFENSE_LAYOUT_FRONTLINE,
+    RESOURCE_ZONE_TYPES,
+    ROLE_ROCKET,
+    ROLE_WORKER,
+    WEAPON_BUILD_COST,
+)
 
 
 class EconomyPlanner:
@@ -47,6 +54,9 @@ class EconomyPlanner:
         return False
 
     def build(self, role: Unit) -> bool:
+        return self.build_weapons(role) or self.build_planned_walls(role)
+
+    def build_weapons(self, role: Unit) -> bool:
         if role.role_type != ROLE_WORKER or not self.turn.is_day:
             return False
         weapons = [w for w in self.turn.team_our.roles if w.alive and w.is_weapon]
@@ -55,26 +65,55 @@ class EconomyPlanner:
         for name in [w.role_type for w in weapons] + [a.name for a in queued]:
             if name in needed:
                 needed.remove(name)
-        if len(weapons) + len(queued) < 3 and needed and self.ctx.gold >= WEAPON_BUILD_COST:
-            for site in weapon_sites(self.turn):
-                if site in self.nav.occupied or site in self.ctx.claimed:
+        if len(weapons) + len(queued) >= 3 or not needed or self.ctx.gold < WEAPON_BUILD_COST:
+            return False
+        layout = self.ctx.layout
+        if self.config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and layout is not None:
+            for placement in remaining_weapon_placements(self.turn, layout):
+                if placement.pos in self.nav.occupied or placement.pos in self.ctx.claimed:
                     continue
-                action = Action(role.unit_id, ActionType.BUILD, targets=(site,), name=needed[0])
-                if self._travel(role, site, action):
-                    self.ctx.claimed.add(site)
+                action = Action(role.unit_id, ActionType.BUILD, targets=(placement.pos,),
+                                name=placement.role_type)
+                if self._travel(role, placement.pos, action):
+                    self.ctx.claimed.add(placement.pos)
                     return True
+            return False
+        for site in weapon_sites(self.turn):
+            if site in self.nav.occupied or site in self.ctx.claimed:
+                continue
+            action = Action(role.unit_id, ActionType.BUILD, targets=(site,), name=needed[0])
+            if self._travel(role, site, action):
+                self.ctx.claimed.add(site)
+                return True
+        return False
+
+    def build_planned_walls(self, role: Unit) -> bool:
+        if role.role_type != ROLE_WORKER or not self.turn.is_day:
+            return False
+        weapons = [w for w in self.turn.team_our.roles if w.alive and w.is_weapon]
+        queued = [a for a in self.ctx.actions if a.action_type == ActionType.BUILD and a.name != "wall"]
         if len(weapons) + len(queued) < min(3, len(self.config.primary_weapon_loadout)):
             return False
         if "stone" not in role.backpack:
             return False
-        centre = self.turn.coordinate_frame.denormalize(Pos(self.turn.map_info.width // 2, self.turn.map_info.height // 2))
+        layout = self.ctx.layout
+        if self.config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and layout is not None:
+            extra = set(layout.gates)
+            for site in remaining_wall_sites(self.turn, layout):
+                if site in self.nav.occupied or site in self.ctx.claimed or site in extra:
+                    continue
+                route = self.nav.adjacent_route(role, site)
+                if route is None:
+                    continue
+                controllers = tuple(cell for w in layout.weapons for cell in w.controller_cells)
+                if route.distance == 0 and not self._preserves_exit(site, extra_starts=controllers):
+                    continue
+                if self._travel(role, site, Action(role.unit_id, ActionType.BUILD, targets=(site,), name="wall")):
+                    self.ctx.claimed.add(site)
+                    return True
+            return False
         for site in wall_sites(self.turn, self.config.max_walls):
             if site in self.nav.occupied or site in self.ctx.claimed:
-                continue
-            # Preserve forward firing lanes until wall/projectile interaction is verified.
-            if self.config.projectile_building_blocking and any(
-                    w.pos and w.role_type != ROLE_ROCKET and ray_entry(w.pos, centre, site) is not None
-                    for w in weapons):
                 continue
             # Do not wall a controller into an isolated pocket. A build is allowed only
             # while all living roles can still reach the permanent ring entrance.
@@ -88,14 +127,19 @@ class EconomyPlanner:
                 return True
         return False
 
-    def _preserves_exit(self, site: Pos) -> bool:
+    def _preserves_exit(self, site: Pos, extra_starts: tuple[Pos, ...] = ()) -> bool:
         from collections import deque
         blocked = self.nav.occupied | self.nav.reserved | {site}
-        for role in self.turn.team_our.roles:
-            if not role.alive or not role.is_human or role.pos is None:
+        starts = [role.pos for role in self.turn.team_our.roles
+                  if role.alive and role.is_human and role.pos is not None]
+        starts.extend(cell for cell in extra_starts if cell not in blocked or cell == site)
+        if not starts:
+            return True
+        for start in starts:
+            if start is None:
                 continue
-            queue = deque([role.pos])
-            seen = {role.pos}
+            queue = deque([start])
+            seen = {start}
             escaped = False
             while queue and len(seen) < 128:
                 point = queue.popleft()
@@ -114,12 +158,14 @@ class EconomyPlanner:
         # Deliver already-owned vouchers before buying another copy.
         for item in role.backpack:
             if item == "WallFixer":
+                if self.config.wall_maintenance_enabled:
+                    continue
                 targets = [u for u in self.turn.team_our.roles if u.alive and u.role_type == "wall" and u.health < 500]
             elif "UpgradeVoucher" in item and item[-1:] in {"1", "2"}:
                 targets = [u for u in self.turn.team_our.roles if u.alive and u.level == int(item[-1])
                            and ((item.startswith("Weapon") and u.is_weapon)
                                 or (item.startswith("Station") and u.role_type == "station")
-                                or (item.startswith("Wall") and u.role_type == "wall"))]
+                                or (item.startswith("Wall") and u.role_type == "wall" and not self.config.wall_maintenance_enabled))]
             else:
                 continue
             for target in sorted(targets, key=lambda u: (u.health, u.unit_id)):
@@ -176,7 +222,7 @@ class EconomyPlanner:
     def gather_or_sell(self, role: Unit, max_trip: int | None = None) -> bool:
         resources = Counter(item for item in role.backpack if item in RESOURCE_ZONE_TYPES)
         full = len(role.backpack) >= role.backpack_capacity
-        wall_need = self.turn.is_day and any(p not in self.nav.occupied for p in wall_sites(self.turn, self.config.max_walls))
+        wall_need = self._wall_need()
         reserve = self.config.stone_reserve if wall_need else 0
         sale = {name: count - (reserve if name == "stone" else 0) for name, count in resources.items()}
         sale = {name: count for name, count in sale.items() if count > 0}
@@ -219,3 +265,11 @@ class EconomyPlanner:
                 if self._travel(role, vendor, Action(role.unit_id, ActionType.SELL, name=name, quantity=sale[name]), max_trip):
                     return True
         return False
+
+    def _wall_need(self) -> bool:
+        if not self.turn.is_day:
+            return False
+        layout = self.ctx.layout
+        if self.config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and layout is not None:
+            return any(site not in self.nav.occupied for site in remaining_wall_sites(self.turn, layout))
+        return any(p not in self.nav.occupied for p in wall_sites(self.turn, self.config.max_walls))

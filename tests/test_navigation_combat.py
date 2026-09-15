@@ -105,7 +105,7 @@ class CombatTests(unittest.TestCase):
 
     def test_building_blocker_is_conservative_and_configurable(self):
         turn, weapon = self.make([robot(30, 10, 5)])
-        blocker = Turn.from_raw({"teamOur": {"roles": [role(21, "wall", 7, 5)]}}).team_our.roles[0]
+        blocker = Turn.from_raw({"teamOur": {"roles": [role(21, "railgun", 7, 5)]}}).team_our.roles[0]
         turn = replace(turn, team_our=replace(turn.team_our, roles=turn.team_our.roles + (blocker,)))
         self.assertEqual(shot_damage(turn, weapon, Pos(10, 5), DEFAULT_CONFIG), {})
         self.assertEqual(shot_damage(turn, weapon, Pos(10, 5), replace(DEFAULT_CONFIG, projectile_building_blocking=False)), {30: 40})

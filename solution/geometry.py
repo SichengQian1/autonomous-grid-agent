@@ -77,6 +77,16 @@ def ray_entry(origin: Pos, target: Pos, cell: Pos) -> float | None:
     return low
 
 
+def ray_blocked(origin: Pos, target: Pos, cells: set[Pos] | tuple[Pos, ...]) -> bool:
+    """True when a closed unit square on the segment is a conservative hit."""
+    for cell in cells:
+        if cell == origin:
+            continue
+        if ray_entry(origin, target, cell) is not None:
+            return True
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class CoordinateFrame:
     width: int

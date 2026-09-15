@@ -79,6 +79,13 @@ class EconomySimulation:
                 unit["backpack"].remove(action["name"])
                 if action["name"] == "Medicine":
                     unit["health"] = 200 if unit["roleType"] == "pioneer" else 220
+                elif action["name"] == "WallFixer":
+                    building = next(u for u in roles.values() if u["pos"] == target.to_raw())
+                    building["health"] = {1: 1000, 2: 1500, 3: 2000}.get(building["level"], building["health"])
+                elif action["name"].startswith("WallUpgradeVoucher"):
+                    building = next(u for u in roles.values() if u["pos"] == target.to_raw())
+                    building["level"] += 1
+                    building["health"] = {2: 1500, 3: 2000}.get(building["level"], building["health"] + 500)
                 else:
                     building = next(u for u in roles.values() if u["pos"] == target.to_raw())
                     building["level"] += 1

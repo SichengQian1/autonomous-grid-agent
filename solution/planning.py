@@ -5,7 +5,7 @@ import time
 from .actions import Action, ActionType, Decision
 from .models import Turn, Unit
 from .navigation import Navigator, Route
-from .rules import StrategyConfig, WEAPON_BUILD_COST, WEAPON_ROLE_TYPES
+from .rules import StrategyConfig, WEAPON_BUILD_COST, WEAPON_ROLE_TYPES, ROLE_WALL
 from .state import WorldState
 from .validation import ActionValidator
 
@@ -18,6 +18,8 @@ class PlanningContext:
         self.validator = ActionValidator()
         self.claimed: set[object] = set()
         self.gold = turn.team_our.gold
+        self.layout = None
+        self.wall_jobs = ()
 
     @property
     def expired(self) -> bool:
@@ -26,6 +28,11 @@ class PlanningContext:
     def can_add(self, action: Action) -> bool:
         if self.expired or self.state.action_blocked(action, self.turn.round_no):
             return False
+        if action.action_type == ActionType.BUILD and action.name == ROLE_WALL:
+            built = sum(u.alive and u.role_type == ROLE_WALL for u in self.turn.team_our.roles)
+            queued = sum(a.action_type == ActionType.BUILD and a.name == ROLE_WALL for a in self.actions)
+            if built + queued >= self.config.max_walls:
+                return False
         proposed = Decision(tuple(self.actions) + (action,))
         return not self.validator.validate(self.turn, proposed).issues
 

@@ -6,6 +6,7 @@ from .models import ErrorFeedback, Turn
 from .actions import Action
 from .rules import ROUNDS_PER_DAY
 from .resources import MiningCalendar
+from .layout import DefenseMemory
 
 
 @dataclass(slots=True)
@@ -23,6 +24,7 @@ class WorldState:
     previous_actions: tuple[Action, ...] = ()
     blocked_actions: dict[Action, int] = field(default_factory=dict)
     mining: MiningCalendar = field(default_factory=MiningCalendar)
+    defense: DefenseMemory = field(default_factory=DefenseMemory)
 
     def reset(self, turn: Turn) -> None:
         self.generation += 1
@@ -38,6 +40,7 @@ class WorldState:
         self.previous_actions = ()
         self.blocked_actions.clear()
         self.mining = MiningCalendar()
+        self.defense.reset()
 
     def ingest(self, turn: Turn) -> None:
         incoming_key = (turn.team_our.team_id, turn.team_our.team_type)

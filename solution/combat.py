@@ -5,6 +5,7 @@ import time
 from typing import Callable
 
 from .actions import Action, ActionType
+from .ballistics import projectile_blockers
 from .defense import base_cells
 from .geometry import Pos, footprint_distance, neighbours, ray_entry
 from .models import Robot, Turn, Unit
@@ -42,13 +43,10 @@ def shot_damage(turn: Turn, weapon: Unit, target: Pos, config: StrategyConfig) -
                 for r in robots if r.pos.distance_to(target) <= 1}
     stop = 1.1
     if config.projectile_building_blocking:
-        for unit in turn.team_our.roles + turn.team_enemy.roles:
-            if not unit.alive or unit.is_human or unit.unit_id == weapon.unit_id:
-                continue
-            for cell in unit.footprint():
-                entry = ray_entry(weapon.pos, target, cell)
-                if entry is not None:
-                    stop = min(stop, entry)
+        for cell in projectile_blockers(turn, weapon.unit_id):
+            entry = ray_entry(weapon.pos, target, cell)
+            if entry is not None:
+                stop = min(stop, entry)
     hits = []
     for robot in robots:
         entry = ray_entry(weapon.pos, target, robot.pos)

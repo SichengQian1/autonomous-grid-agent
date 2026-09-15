@@ -75,6 +75,28 @@ UNTARGETED_USE_ITEMS = frozenset(
     }
 )
 
+# Documented wall hit points by level; runtime maxHealth overrides this table.
+WALL_LEVEL_MAX_HP = {1: 1000, 2: 1500, 3: 2000}
+# Level-1 coverage estimates used only when a planned weapon is not yet built.
+# Values match the existing synthetic construction harness, not live platform stats.
+WEAPON_LEVEL1_RANGE = {ROLE_GATLING: 3, ROLE_RAILGUN: 6, ROLE_ROCKET: 10}
+WEAPON_LEVEL1_POWER = {ROLE_GATLING: 10, ROLE_RAILGUN: 10, ROLE_ROCKET: 20}
+# Consecutive night snapshots required before the recorded approach may change.
+FRONT_DIRECTION_SHIFT_CONFIRM = 3
+# Stuck wall deliveries are replanned inside one daytime window of 70 rounds.
+WALL_DELIVERY_TIMEOUT_ROUNDS = 40
+# Initial opportunity-cost estimate for wall work, in gold per role action.
+WALL_ACTION_GOLD_EQUIVALENT = 1.0
+# Auto front is unreliable when the footprint sits this close to the midline.
+FRONT_MIDLINE_MARGIN = 1
+LAYOUT_CONNECTIVITY_NODE_LIMIT = 128
+LAYOUT_TEST_POINT_LIMIT = 8
+DEFENSE_LAYOUT_LEGACY = "legacy"
+DEFENSE_LAYOUT_FRONTLINE = "frontline"
+FRONT_DIRECTION_AUTO = "auto"
+FRONT_DIRECTION_EAST = "east"
+FRONT_DIRECTION_WEST = "west"
+
 
 def is_day_round(round_no: int) -> bool:
     """Return the documented phase for one-based round numbers.
@@ -117,6 +139,16 @@ class StrategyConfig:
         ROLE_RAILGUN,
         ROLE_ROCKET,
     )
+    defense_layout: str = DEFENSE_LAYOUT_LEGACY
+    front_direction: str = FRONT_DIRECTION_AUTO
+    front_wall_target_count: int = 4
+    wall_maintenance_enabled: bool = False
+    wall_budget_fraction: float = 0.25
+    wall_emergency_horizon: int = 3
+    wall_observation_history_rounds: int = 130
+    front_observation_limit: int = 64
+    layout_candidate_limit: int = 128
+    layout_search_budget_ms: int = 100
 
 
 DEFAULT_CONFIG = StrategyConfig()

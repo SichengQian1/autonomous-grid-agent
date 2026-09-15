@@ -82,7 +82,14 @@ def controller_assignments(turn: Turn, nav: Navigator, *,
     return best[1] if best else {}
 
 
-def defensive_route(turn: Turn, nav: Navigator, role: Unit, weapon: Unit | None) -> Route | None:
+def defensive_route(turn: Turn, nav: Navigator, role: Unit, weapon: Unit | None,
+                    layout=None) -> Route | None:
+    if layout is not None and weapon is not None and weapon.pos is not None:
+        for placement in layout.weapons:
+            if placement.pos == weapon.pos or placement.role_type == weapon.role_type:
+                planned = placement.controller_cells
+                if planned:
+                    return nav.route(role, planned) or nav.route(role, neighbours(weapon.pos))
     cells = neighbours(weapon.pos) if weapon and weapon.pos else build_cells(turn, 1)
     # First prefer controller cells inside the wall ring, away from robots.
     inner = tuple(p for p in cells if footprint_distance(p, base_cells(turn)) <= 1)
