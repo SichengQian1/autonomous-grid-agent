@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from .actions import Action, ActionType
+from .geometry import Pos
+from .models import Robot, Turn, Unit
+from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET
+
+
+ROBOT_SCORE = {
+    "smallRobot": 1,
+    "middleRobot": 2,
+    "largeRobot": 4,
+    "bossRobot": 10,
+}
+ROBOT_ATTACK = {
+    "smallRobot": 5,
+    "middleRobot": 10,
+    "largeRobot": 20,
+    "bossRobot": 40,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ControllerAssignment:
+    weapon: Unit
+    controller: Unit
+
+
+def assign_controllers(turn: Turn, weapons: tuple[Unit, ...]) -> tuple[ControllerAssignment, ...]:
+    available = list(turn.controllable)
+    result: list[ControllerAssignment] = []
+    ordered = sorted(weapons, key=lambda weapon: (weapon.role_type != ROLE_ROCKET, weapon.unit_id))
+    for weapon in ordered:
+        if weapon.pos is None or not available:
+            continue
+        def preference(role: Unit) -> tuple[int, int, int]:
+            preferred = (weapon.role_type == ROLE_ROCKET and role.role_type == "pioneer") or (
+                weapon.role_type != ROLE_ROCKET and role.role_type == "worker"
+            )
+            return (0 if preferred else 1, role.pos.distance_to(weapon.pos) if role.pos else 10**6, role.unit_id)
+        controller = min(available, key=preference)
+        available.remove(controller)
+        result.append(ControllerAssignment(weapon, controller))
+    return tuple(result)
+
+
+def controllers_needed(weapons: tuple[Unit, ...], robots: tuple[Robot, ...]) -> int:
+    if not robots:
+        return 0
+    total_health = sum(max(0, robot.health) for robot in robots)
+    ordered_damage = sorted((max(10, weapon.attack_power) for weapon in weapons), reverse=True)
+    cumulative = 0
+    for count, damage in enumerate(ordered_damage, 1):
+        cumulative += damage
+        if cumulative >= min(total_health, 80):
+            return count
+    return len(weapons)
+
+
+def plan_attacks(
+    turn: Turn,
+    assignments: tuple[ControllerAssignment, ...],
+    robots: tuple[Robot, ...],
+) -> tuple[Action, ...]:
+    projected = {robot.robot_id: robot.health for robot in robots}
+    actions: list[Action] = []
+    for assignment in sorted(assignments, key=lambda item: _weapon_priority(item.weapon)):
+        weapon, controller = assignment.weapon, assignment.controller
+        if (
+            weapon.pos is None
+            or controller.pos is None
+            or controller.pos.distance_to(weapon.pos) > 1
+            or (weapon.role_type == ROLE_ROCKET and weapon.cooldown > 0)
+        ):
+            continue
+        in_range = tuple(
+            robot for robot in robots
+            if robot.pos is not None
+            and projected.get(robot.robot_id, 0) > 0
+            and weapon.pos.distance_to(robot.pos) <= weapon.attack_range
+        )
+        if not in_range:
+            continue
+        targets = _targets_for_weapon(weapon, in_range, projected, turn)
+        if not targets:
+            continue
+        actions.append(
+            Action(
+                weapon.unit_id,
+                ActionType.ATTACK,
+                controller_id=controller.unit_id,
+                targets=targets,
+            )
+        )
+        _apply_projected_damage(weapon, targets, in_range, projected)
+    return tuple(actions)
+
+
+def _weapon_priority(weapon: Unit) -> tuple[int, int]:
+    order = {ROLE_ROCKET: 0, ROLE_RAILGUN: 1, ROLE_GATLING: 2}
+    return (order.get(weapon.role_type, 9), weapon.unit_id)
+
+
+def _threat_score(turn: Turn, robot: Robot, remaining_health: int) -> float:
+    station = turn.team_our.station()
+    distance = 99
+    if station is not None and robot.pos is not None:
+        distance = min(robot.pos.distance_to(cell) for cell in station.footprint())
+    attack = robot.attack_power or ROBOT_ATTACK.get(robot.role_type, 5)
+    kill = ROBOT_SCORE.get(robot.role_type, 1)
+    lethal_bonus = 35 if remaining_health <= 30 else 0
+    return 200 / max(distance, 1) + attack * 3 + kill * 8 + lethal_bonus - remaining_health * 0.05
+
+
+def _targets_for_weapon(
+    weapon: Unit,
+    robots: tuple[Robot, ...],
+    projected: dict[int, int],
+    turn: Turn,
+) -> tuple[Pos, ...]:
+    if weapon.role_type == ROLE_RAILGUN:
+        best = max(
+            robots,
+            key=lambda robot: _railgun_value(weapon, robot, robots, projected, turn),
+        )
+        return (best.pos,) if best.pos is not None else ()
+    count = max(weapon.level, 1)
+    if weapon.role_type == ROLE_ROCKET:
+        centers: list[Pos] = []
+        working = dict(projected)
+        for _ in range(count):
+            candidates = {
+                candidate
+                for robot in robots
+                if robot.pos is not None
+                for candidate in (robot.pos,) + robot.pos.neighbours()
+                if turn.map_info.contains(candidate)
+                and weapon.pos is not None
+                and weapon.pos.distance_to(candidate) <= weapon.attack_range
+            }
+            if not candidates:
+                break
+            best = max(candidates, key=lambda pos: _rocket_value(pos, robots, working, turn))
+            centers.append(best)
+            _apply_rocket_projection(best, robots, working, weapon)
+        return tuple(centers)
+    ordered = sorted(
+        robots,
+        key=lambda robot: -_threat_score(turn, robot, projected[robot.robot_id]),
+    )
+    if not ordered or ordered[0].pos is None:
+        return ()
+    # Repeated aim is a conservative way to satisfy upgraded target count and the
+    # 90-degree cone while concentrating bullets on a high-value target.
+    return tuple(ordered[0].pos for _ in range(count))
+
+
+def _railgun_value(
+    weapon: Unit,
+    target: Robot,
+    robots: tuple[Robot, ...],
+    projected: dict[int, int],
+    turn: Turn,
+) -> float:
+    if weapon.pos is None or target.pos is None:
+        return float("-inf")
+    dx = target.pos.x - weapon.pos.x
+    dy = target.pos.y - weapon.pos.y
+    value = 0.0
+    for robot in robots:
+        if robot.pos is None or projected[robot.robot_id] <= 0:
+            continue
+        rx = robot.pos.x - weapon.pos.x
+        ry = robot.pos.y - weapon.pos.y
+        if dx * ry == dy * rx and dx * rx + dy * ry > 0:
+            value += _threat_score(turn, robot, projected[robot.robot_id])
+    return value
+
+
+def _rocket_value(
+    center: Pos,
+    robots: tuple[Robot, ...],
+    projected: dict[int, int],
+    turn: Turn,
+) -> float:
+    value = 0.0
+    for robot in robots:
+        if robot.pos is None or projected[robot.robot_id] <= 0:
+            continue
+        distance = center.distance_to(robot.pos)
+        if distance <= 1:
+            damage = 20 if distance == 0 else 10
+            value += min(damage, projected[robot.robot_id]) * 2
+            value += _threat_score(turn, robot, projected[robot.robot_id])
+    return value
+
+
+def _apply_projected_damage(
+    weapon: Unit,
+    targets: tuple[Pos, ...],
+    robots: tuple[Robot, ...],
+    projected: dict[int, int],
+) -> None:
+    if weapon.role_type == ROLE_ROCKET:
+        for target in targets:
+            _apply_rocket_projection(target, robots, projected, weapon)
+        return
+    if weapon.role_type == ROLE_RAILGUN and weapon.pos is not None:
+        energy = max(weapon.attack_power, 10 * max(weapon.level, 1))
+        target = targets[0]
+        dx, dy = target.x - weapon.pos.x, target.y - weapon.pos.y
+        aligned = sorted(
+            (
+                robot for robot in robots
+                if robot.pos is not None
+                and dx * (robot.pos.y - weapon.pos.y) == dy * (robot.pos.x - weapon.pos.x)
+                and dx * (robot.pos.x - weapon.pos.x) + dy * (robot.pos.y - weapon.pos.y) > 0
+            ),
+            key=lambda robot: weapon.pos.distance_to(robot.pos),
+        )
+        for robot in aligned:
+            damage = min(energy, projected.get(robot.robot_id, 0))
+            projected[robot.robot_id] = max(0, projected.get(robot.robot_id, 0) - damage)
+            energy -= damage
+            if energy <= 0:
+                break
+        return
+    damage = max(weapon.attack_power, 10)
+    for target in targets:
+        hit = next((robot for robot in robots if robot.pos == target and projected[robot.robot_id] > 0), None)
+        if hit is not None:
+            projected[hit.robot_id] = max(0, projected[hit.robot_id] - damage)
+
+
+def _apply_rocket_projection(
+    center: Pos,
+    robots: tuple[Robot, ...],
+    projected: dict[int, int],
+    weapon: Unit,
+) -> None:
+    center_damage = max(weapon.attack_power, 20)
+    splash_damage = max(10, center_damage // 2)
+    for robot in robots:
+        if robot.pos is None:
+            continue
+        distance = center.distance_to(robot.pos)
+        if distance <= 1:
+            damage = center_damage if distance == 0 else splash_damage
+            projected[robot.robot_id] = max(0, projected.get(robot.robot_id, 0) - damage)

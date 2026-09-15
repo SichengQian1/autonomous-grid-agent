@@ -1,0 +1,11 @@
+from __future__ import annotations
+
+from enum import Enum
+
+
+class EvidenceLevel(str, Enum):
+    CONFIRMED_SPEC = "CONFIRMED_SPEC"
+    CONFIRMED_RUNTIME = "CONFIRMED_RUNTIME"
+    USER_OBSERVED = "USER_OBSERVED"
+    DEMO_ONLY = "DEMO_ONLY"
+    UNVERIFIED_PLATFORM_BEHAVIOR = "UNVERIFIED_PLATFORM_BEHAVIOR"

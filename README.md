@@ -38,15 +38,46 @@ make smoke PORT=8000
 solution/           submission source code
 tests/              synthetic and sanitized tests
 tools/diagnostics/  bounded read-only diagnostic tools
+tools/build_submission.py  reproducible submission archive builder
+submissions/        versioned platform-ready archives
 docs/               public-safe technical documentation
 local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The current implementation provides defensive request models, cross-turn state,
-internal action objects, centralized validation and serialization, and a
-protocol-safe empty strategy. Competitive planners are enabled only after their
-rules and tests are ready.
+The V1 implementation is active rather than an empty strategy. It includes
+eight-direction pathfinding, joint role movement, mirrored defensive geometry,
+construction/economy/recall planning, threat-weighted combat, task and treasure
+state machines, opponent modes, and evidence-gated summon/cross-map decisions.
+Unknown platform mechanics retain safe fallbacks and require practice calibration.
+
+On a Windows development computer, run the service directly from PowerShell:
+
+```powershell
+python -m solution.main 8000
+```
+
+The synthetic replay is a regression harness, not an official simulator:
+
+```bash
+python tools/diagnostics/synthetic_replay.py --side challenger
+python tools/diagnostics/synthetic_replay.py --side defender
+```
+
+## Build a submission
+
+The current iteration is recorded in `VERSION`. From PowerShell, generate and
+validate the exact platform archive with:
+
+```powershell
+python tools/build_submission.py
+```
+
+For `v0.1`, this produces `submissions/v0/submission-v0.1.tar.gz`. The archive
+contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
+`solution/`; it excludes repository documentation, tests, diagnostics, logs, and
+local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
+major strategy or architecture generation starts `codex/v1`.
 
 ## Safety
 

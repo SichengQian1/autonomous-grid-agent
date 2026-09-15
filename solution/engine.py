@@ -7,6 +7,7 @@ from typing import Any
 
 from .actions import Decision
 from .models import Turn
+from .planner import CompetitionPlanner
 from .protocol import safe_response, serialize_decision
 from .rules import DEFAULT_CONFIG, StrategyConfig
 from .state import LlmBudget, WorldState
@@ -22,6 +23,7 @@ class AgentEngine:
         self.state = WorldState()
         self.llm_budget = LlmBudget()
         self.validator = ActionValidator()
+        self.planner = CompetitionPlanner()
         self._lock = threading.Lock()
 
     def decide(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -44,16 +46,29 @@ class AgentEngine:
                     len(issues),
                     turn.round_no,
                 )
+            accepted_ids = {int(actor_id) for actor_id in response["roleCommandMap"]}
+            accepted = Decision(
+                actions=tuple(
+                    action for action in decision.actions if action.actor_id in accepted_ids
+                ),
+                prompt=decision.prompt,
+                execute_command=decision.execute_command,
+            )
+            self.state.record_decision(turn, accepted)
             return response
         finally:
             self._lock.release()
 
     def _plan(self, turn: Turn, started_at: float) -> Decision:
-        del turn
         if self._deadline_reached(started_at):
             return Decision()
-        # Competitive planners are added behind this protocol-safe boundary.
-        return Decision()
+        return self.planner.plan(
+            turn,
+            self.state,
+            self.llm_budget,
+            self.config,
+            lambda: self._deadline_reached(started_at),
+        )
 
     def _deadline_reached(self, started_at: float) -> bool:
         return time.monotonic() - started_at >= self.config.normal_turn_budget_seconds

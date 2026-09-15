@@ -19,6 +19,8 @@ from .rules import (
     TARGETED_USE_ITEMS,
     UNTARGETED_USE_ITEMS,
     WEAPON_ROLE_TYPES,
+    WEAPON_BUILD_COST,
+    MAX_WEAPON_COUNT,
 )
 
 
@@ -40,6 +42,11 @@ class ActionValidator:
         issues: list[ValidationIssue] = []
         seen_actors: set[int] = set()
         reserved_controllers: set[int] = set()
+        remaining_gold = turn.team_our.gold
+        projected_weapon_count = sum(
+            1 for unit in turn.team_our.roles if unit.role_type in WEAPON_ROLE_TYPES
+        )
+        reserved_items: Counter[tuple[int, str]] = Counter()
         proposed_role_actors = {
             action.actor_id
             for action in decision.actions
@@ -61,11 +68,66 @@ class ActionValidator:
             if reason:
                 issues.append(ValidationIssue(action.actor_id, reason))
                 continue
+            budget_reason, gold_cost, weapon_delta, item_costs = self._budget_check(
+                turn,
+                action,
+                remaining_gold,
+                projected_weapon_count,
+                reserved_items,
+            )
+            if budget_reason:
+                issues.append(ValidationIssue(action.actor_id, budget_reason))
+                continue
             accepted.append(action)
+            remaining_gold -= gold_cost
+            projected_weapon_count += weapon_delta
+            reserved_items.update(item_costs)
             if action.controller_id is not None:
                 reserved_controllers.add(action.controller_id)
 
         return ValidationResult(tuple(accepted), tuple(issues))
+
+    @staticmethod
+    def _budget_check(
+        turn: Turn,
+        action: Action,
+        remaining_gold: int,
+        projected_weapon_count: int,
+        reserved_items: Counter[tuple[int, str]],
+    ) -> tuple[str, int, int, Counter[tuple[int, str]]]:
+        gold_cost = 0
+        weapon_delta = 0
+        item_costs: Counter[tuple[int, str]] = Counter()
+        if action.action_type == ActionType.BUY:
+            price = next(
+                (item.price for item in turn.weapon_shop if item.name == action.name),
+                0,
+            )
+            gold_cost = price * max(action.quantity or 0, 0)
+        elif action.action_type == ActionType.BUILD:
+            if action.name in WEAPON_ROLE_TYPES:
+                gold_cost = WEAPON_BUILD_COST
+                weapon_delta = 1
+                if projected_weapon_count >= MAX_WEAPON_COUNT:
+                    return "weapon limit would be exceeded", 0, 0, item_costs
+            elif action.name == ROLE_WALL:
+                item_costs[(action.actor_id, "stone")] += 1
+        elif action.action_type in {ActionType.USE, ActionType.DROP}:
+            item_costs[(action.actor_id, action.name)] += 1
+        elif action.action_type == ActionType.SUMMON_TREASURE:
+            for item in action.items:
+                item_costs[(action.actor_id, item)] += 1
+
+        if gold_cost > remaining_gold:
+            return "shared gold budget would be exceeded", 0, 0, Counter()
+        actor = turn.team_our.unit(action.actor_id)
+        if actor is not None:
+            inventory = Counter(actor.backpack)
+            for key, count in item_costs.items():
+                already_reserved = reserved_items[key]
+                if inventory[key[1]] < already_reserved + count:
+                    return "reserved item budget would be exceeded", 0, 0, Counter()
+        return "", gold_cost, weapon_delta, item_costs
 
     def _validate_action(
         self,
@@ -124,11 +186,22 @@ class ActionValidator:
         proposed_role_actors: set[int],
         reserved_controllers: set[int],
     ) -> str:
-        del turn, proposed_role_actors, reserved_controllers
+        del proposed_role_actors, reserved_controllers
         if not self._human(actor):
             return "only a controllable role can move"
         if not self._single_adjacent_target(actor, action):
             return "move requires one adjacent target"
+        target = action.targets[0]
+        if any(
+            target in unit.footprint()
+            for unit in turn.team_our.roles + turn.team_enemy.roles
+            if unit.unit_id != actor.unit_id
+        ):
+            return "move target is occupied by a visible unit"
+        if any(zone.pos == target for zone in turn.map_info.zones):
+            return "move target is an occupied neutral cell"
+        if any(robot.pos == target and robot.health > 0 for robot in turn.robots):
+            return "move target is occupied by a robot"
         return ""
 
     def _validate_attack(
@@ -205,6 +278,8 @@ class ActionValidator:
             return "sell requires a positive quantity and item name"
         if Counter(actor.backpack)[action.name] < action.quantity:
             return "sell quantity exceeds backpack inventory"
+        if action.name not in {item.name for item in turn.vendor_shop}:
+            return "item is not present in the runtime vendor list"
         if not self._adjacent_to_zone(turn, actor, "vendor"):
             return "seller is not adjacent to a vendor"
         return ""
@@ -224,6 +299,11 @@ class ActionValidator:
             return "buy requires a positive quantity and item name"
         if action.name not in {item.name for item in turn.weapon_shop}:
             return "item is not present in the runtime shop"
+        price = next(item.price for item in turn.weapon_shop if item.name == action.name)
+        if price * action.quantity > turn.team_our.gold:
+            return "purchase exceeds available gold"
+        if actor.backpack_capacity and len(actor.backpack) + action.quantity > actor.backpack_capacity:
+            return "purchase exceeds backpack capacity"
         if not self._adjacent_to_zone(turn, actor, "weaponShop"):
             return "buyer is not adjacent to a weapon shop"
         return ""
@@ -245,6 +325,18 @@ class ActionValidator:
             return "build name is not recognized"
         if not self._single_adjacent_target(actor, action):
             return "build requires one adjacent target"
+        target = action.targets[0]
+        if any(target in unit.footprint() for unit in turn.team_our.roles + turn.team_enemy.roles):
+            return "build target is already occupied"
+        if any(zone.pos == target for zone in turn.map_info.zones):
+            return "build target is an occupied neutral cell"
+        if action.name == ROLE_WALL and "stone" not in actor.backpack:
+            return "wall build requires stone"
+        if action.name in WEAPON_ROLE_TYPES:
+            if turn.team_our.gold < WEAPON_BUILD_COST:
+                return "weapon build requires sufficient gold"
+            if sum(1 for unit in turn.team_our.roles if unit.role_type in WEAPON_ROLE_TYPES) >= MAX_WEAPON_COUNT:
+                return "weapon limit has been reached"
         return ""
 
     def _validate_remove(
@@ -379,6 +471,8 @@ class ActionValidator:
         del proposed_role_actors, reserved_controllers
         if actor.role_type != ROLE_WORKER:
             return "only a worker can collect"
+        if actor.backpack_capacity and len(actor.backpack) >= actor.backpack_capacity:
+            return "collector backpack is full"
         if not self._single_adjacent_target(actor, action):
             return "collect requires one adjacent target"
         if not any(

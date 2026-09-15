@@ -174,6 +174,39 @@ class ActionValidationTests(unittest.TestCase):
         self.assertEqual(response["roleCommandMap"]["4"]["controllerId"], "1")
         json.dumps(response)
 
+    def test_shared_gold_and_weapon_limit_are_validated_across_actions(self) -> None:
+        raw = synthetic_turn(round_no=1)
+        raw["teamOur"]["goldNum"] = 50
+        raw["mapInfo"]["zones"] = []
+        raw["teamOur"]["roles"] = [
+            {
+                "id": actor_id,
+                "pos": {"x": actor_id, "y": 1},
+                "roleType": "worker",
+                "health": 220,
+                "backPackCapability": 100,
+                "backpack": [],
+            }
+            for actor_id in (1, 2, 3)
+        ]
+        turn = Turn.from_raw(raw)
+        result = self.validator.validate(
+            turn,
+            Decision(
+                tuple(
+                    Action(
+                        actor_id,
+                        ActionType.BUILD,
+                        targets=(Pos(actor_id, 2),),
+                        name="railgun",
+                    )
+                    for actor_id in (1, 2, 3)
+                )
+            ),
+        )
+        self.assertEqual(len(result.actions), 2)
+        self.assertIn("gold", result.issues[0].reason)
+
 
 if __name__ == "__main__":
     unittest.main()

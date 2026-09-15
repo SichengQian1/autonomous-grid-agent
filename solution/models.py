@@ -205,6 +205,8 @@ class Robot:
     pos: Pos | None = None
     role_type: str = ""
     health: int = 0
+    attack_power: int = 0
+    attack_range: int = 0
     abnormal_state: str = ""
     target_team: str = ""
 
@@ -216,6 +218,8 @@ class Robot:
             pos=Pos.from_raw(data.get("pos")),
             role_type=_string(data.get("roleType")),
             health=_integer(data.get("health")),
+            attack_power=max(0, _integer(data.get("attackPower"))),
+            attack_range=max(0, _integer(data.get("attackRange"))),
             abnormal_state=_string(data.get("abnormalState")),
             target_team=_string(data.get("targetTeam")),
         )
@@ -325,11 +329,31 @@ class Turn:
 
     @property
     def coordinate_frame(self) -> CoordinateFrame:
-        return CoordinateFrame(
+        station = self.team_our.station()
+        return CoordinateFrame.from_station(
             width=self.map_info.width,
             height=self.map_info.height,
             team_type=self.team_our.team_type,
+            station_anchor=station.pos if station is not None else None,
         )
+
+    @property
+    def day_index(self) -> int:
+        return max(self.round_no - 1, 0) // 130 + 1
+
+    @property
+    def round_in_day(self) -> int:
+        return max(self.round_no - 1, 0) % 130 + 1
+
+    @property
+    def rounds_until_night(self) -> int:
+        if not self.is_day:
+            return 0
+        return max(0, 71 - self.round_in_day)
+
+    @property
+    def controllable(self) -> tuple[Unit, ...]:
+        return tuple(unit for unit in self.team_our.roles if unit.is_human and unit.alive)
 
     def resource_at(self, pos: Pos) -> bool:
         return any(

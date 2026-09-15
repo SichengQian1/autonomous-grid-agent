@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .actions import Action, ActionType, Decision
+from .geometry import Pos
 from .models import ErrorFeedback, Turn
 
 
@@ -16,8 +18,17 @@ class WorldState:
     last_errors: tuple[ErrorFeedback, ...] = ()
     last_command_result: str = ""
     last_treasure_result: int = 0
+    generation: int = 0
+    pending_actions: dict[int, tuple[int, Action, bool]] = field(default_factory=dict)
+    failed_build_sites: set[Pos] = field(default_factory=set)
+    failed_move_counts: dict[int, int] = field(default_factory=dict)
+    night_economy_failures: int = 0
+    night_economy_disabled: bool = False
+    rear_threat_observed: bool = False
+    previous_station_health: int | None = None
 
     def reset(self, turn: Turn) -> None:
+        self.generation += 1
         self.match_key = (turn.team_our.team_id, turn.team_our.team_type)
         self.last_round_no = 0
         self.turns_seen = 0
@@ -27,6 +38,13 @@ class WorldState:
         self.last_errors = ()
         self.last_command_result = ""
         self.last_treasure_result = 0
+        self.pending_actions.clear()
+        self.failed_build_sites.clear()
+        self.failed_move_counts.clear()
+        self.night_economy_failures = 0
+        self.night_economy_disabled = False
+        self.rear_threat_observed = False
+        self.previous_station_health = None
 
     def ingest(self, turn: Turn) -> None:
         incoming_key = (turn.team_our.team_id, turn.team_our.team_type)
@@ -49,6 +67,8 @@ class WorldState:
         self.last_errors = turn.errors
         self.last_command_result = turn.last_command_result
         self.last_treasure_result = turn.last_summon_treasure_result
+        self._consume_action_feedback(turn)
+        self._observe_rear_threat(turn)
         self._append_unique(
             self.official_news_history,
             turn.round_no,
@@ -59,6 +79,72 @@ class WorldState:
             turn.round_no,
             turn.world_news.folk_legends,
         )
+
+        station = turn.team_our.station()
+        self.previous_station_health = station.health if station is not None else None
+
+    def record_decision(self, turn: Turn, decision: Decision) -> None:
+        for action in decision.actions:
+            self.pending_actions[action.actor_id] = (
+                turn.round_no,
+                action,
+                not turn.is_day,
+            )
+
+    def _consume_action_feedback(self, turn: Turn) -> None:
+        self.pending_actions = {
+            actor_id: pending
+            for actor_id, pending in self.pending_actions.items()
+            if turn.round_no - pending[0] <= 2
+        }
+        if not turn.last_action_results:
+            return
+        for actor_id, succeeded in turn.last_action_results.items():
+            pending = self.pending_actions.pop(actor_id, None)
+            if pending is None:
+                continue
+            _, action, was_night = pending
+            if succeeded:
+                self.failed_move_counts.pop(actor_id, None)
+                continue
+            if action.action_type == ActionType.BUILD and action.targets:
+                self.failed_build_sites.add(action.targets[0])
+            if action.action_type == ActionType.MOVE:
+                self.failed_move_counts[actor_id] = self.failed_move_counts.get(actor_id, 0) + 1
+            if was_night and action.action_type in {
+                ActionType.COLLECT,
+                ActionType.SELL,
+                ActionType.BUY,
+            }:
+                self.night_economy_failures += 1
+                self.night_economy_disabled = True
+
+    def _observe_rear_threat(self, turn: Turn) -> None:
+        station = turn.team_our.station()
+        if station is None or station.pos is None:
+            return
+        frame = turn.coordinate_frame
+        station_x = max(frame.normalize(cell).x for cell in station.footprint())
+        if (
+            self.previous_station_health is not None
+            and station.health < self.previous_station_health
+            and not any(
+                robot.pos is not None
+                and frame.normalize(robot.pos).x > station_x
+                for robot in turn.robots
+                if robot.health > 0
+                and (not robot.target_team or robot.target_team == turn.team_our.team_type)
+            )
+        ):
+            self.rear_threat_observed = True
+        for robot in turn.robots:
+            if robot.health <= 0 or robot.pos is None:
+                continue
+            if robot.target_team and robot.target_team != turn.team_our.team_type:
+                continue
+            if frame.normalize(robot.pos).x < station_x - 1:
+                self.rear_threat_observed = True
+                return
 
     @staticmethod
     def _append_unique(

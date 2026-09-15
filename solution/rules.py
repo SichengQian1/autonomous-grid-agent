@@ -7,6 +7,9 @@ DAY_ROUNDS = 70
 NIGHT_ROUNDS = 60
 ROUNDS_PER_DAY = DAY_ROUNDS + NIGHT_ROUNDS
 NORMAL_TURN_BUDGET_SECONDS = 4.0
+WEAPON_BUILD_COST = 25
+MAX_WEAPON_COUNT = 3
+MAX_WALL_COUNT = 20
 
 TEAM_CHALLENGER = "challenger"
 TEAM_DEFENDER = "defender"
@@ -91,6 +94,23 @@ class StrategyConfig:
         ROLE_RAILGUN,
         ROLE_ROCKET,
     )
+    weapon_build_cost: int = WEAPON_BUILD_COST
+    max_weapon_count: int = MAX_WEAPON_COUNT
+    max_wall_count: int = MAX_WALL_COUNT
+    recall_safety_buffer: int = 4
+    emergency_gold_reserve: int = 25
+    cautious_defense_margin: int = 7
+    critical_defense_margin: int = 3
+    wall_stone_target: int = 8
+    task_minimum_timeout: int = 12
+    task_return_buffer: int = 4
+    treasure_confidence_threshold: float = 0.95
+    allow_unverified_night_economy: bool = True
+    night_economy_failure_limit: int = 1
+    allow_cross_map_fire: bool = True
+    allow_summon_pressure: bool = True
+    boss_summon_item: str = "BossRobotSummonOrder"
+    minimum_opponent_observations: int = 2
 
 
 DEFAULT_CONFIG = StrategyConfig()

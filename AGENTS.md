@@ -26,6 +26,7 @@ Rules:
 - `all/CoreGeek/` is the extracted minimal Python SDK.
 - `all/CoreGeek 2/` is the extracted full reference demo.
 - The reference demo is useful for understanding the protocol, but it is not an authoritative or competitive strategy.
+- `local/reference/` contains the maintained local-only digest and source inventory. Read its `README.md` and the relevant topic file before reopening PDFs or rescanning SDK/demo files. The digest saves context but never overrides newer specifications or actual platform behavior.
 - Create the competition implementation under `solution/`.
 - Keep tests under `tests/` and narrowly scoped diagnostic utilities under `tools/diagnostics/` when those directories are needed.
 - Keep temporary files, generated logs, replays, caches, and test outputs out of official-material directories.
@@ -306,10 +307,11 @@ Do not add copied work-computer logs to Git. Convert useful incidents into sanit
 
 Before modifying code:
 
-1. Read the relevant specifications and existing implementation.
-2. Inspect the current workspace and Git state.
-3. Identify affected modules and unverified assumptions.
-4. Preserve unrelated user changes.
+1. Read the relevant local digest under `local/reference/`, then reopen original specifications only for conflicts, missing visual details, changed source hashes, or requirement updates.
+2. Read the relevant existing implementation.
+3. Inspect the current workspace and Git state.
+4. Identify affected modules and unverified assumptions.
+5. Preserve unrelated user changes.
 
 After modifying code:
 

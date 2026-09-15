@@ -1,7 +1,7 @@
 PYTHON ?= python3
 PORT ?= 8000
 
-.PHONY: test run smoke
+.PHONY: test run smoke replay submission
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
@@ -12,3 +12,10 @@ run:
 
 smoke:
 	$(PYTHON) tools/diagnostics/smoke_http.py --port $(PORT)
+
+replay:
+	$(PYTHON) tools/diagnostics/synthetic_replay.py --side challenger
+	$(PYTHON) tools/diagnostics/synthetic_replay.py --side defender
+
+submission:
+	$(PYTHON) tools/build_submission.py

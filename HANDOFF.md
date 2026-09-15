@@ -13,8 +13,11 @@ match logs here.
 - First comparison: one gatling, one railgun, and one rocket launcher.
 - Treat task score and income as primary differentiators when defensive readiness
   remains safe.
-- Keep cross-map score stealing and pressure behavior disabled until platform
-  experiments verify their mechanics.
+- Include task, treasure, opponent modeling, cross-map score evaluation, and
+  conditional summon pressure in the V1 architecture. Each high-risk action remains
+  evidence-gated and falls back safely when its mechanics are unverified.
+- Concentrate wall construction on the observed threat side and leave a fixed opening
+  on the opposite side for role traffic. Dynamic remove/rebuild is outside V1.
 
 ## Source and Repository Boundaries
 
@@ -29,9 +32,12 @@ match logs here.
 Before a change:
 
 1. Read `AGENTS.md`, this handoff, and the relevant public-safe design document.
-2. Inspect `git status` and preserve unrelated work.
-3. State the rule source and list any unverified assumptions.
-4. Add or identify a failing synthetic test for bug fixes.
+2. Read `local/reference/README.md` and the relevant local topic digest before
+   reopening official PDFs or SDK files. Reopen originals only for conflicts,
+   missing visual details, changed hashes, or requirement updates.
+3. Inspect `git status` and preserve unrelated work.
+4. State the rule source and list any unverified assumptions.
+5. Add or identify a failing synthetic test for bug fixes.
 
 After a change:
 
@@ -40,6 +46,18 @@ After a change:
 3. Inspect the exact changed-file list and ensure local reference material remains
    excluded.
 4. Update this file with behavior, reason, verification, assumptions, and next work.
+
+## Release Workflow
+
+- `VERSION` is the release source of truth and uses `v<major>.<minor>`.
+- Keep compatible iterations on `codex/v<major>` and increment only the minor
+  suffix. Start a new major branch only for a major strategy or architecture update.
+- Run `python tools/build_submission.py` to create
+  `submissions/v<major>/submission-v<major>.<minor>.tar.gz`.
+- The builder includes every `solution/*.py` module under the proven top-level
+  `CoreGeek/` layout, validates the entry list, and prints the SHA-256.
+- Before upload, verify the archive from a clean extraction, retain its Git revision
+  and SHA-256, and upload that exact file without repacking it.
 
 ## Current Architecture
 
@@ -52,11 +70,156 @@ After a change:
 - `solution/validation.py`: fail-closed action validation.
 - `solution/protocol.py`: validated response serialization and safe fallback.
 - `solution/state.py`: cross-turn feedback/news state and LLM call budget.
+- `solution/grid.py`: occupied cells and bounded eight-direction pathfinding.
+- `solution/movement.py`: joint next-cell reservation and collision avoidance.
+- `solution/defense.py`: normalized front/rear geometry and defensive layout.
+- `solution/economy.py`: defense budget, construction, and resource value.
+- `solution/logistics.py`: runtime-shop repair and upgrade workflow.
+- `solution/combat.py`: controllers, release levels, and projected target allocation.
+- `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
+- `solution/opponent.py`: opponent evidence and global strategic modes.
+- `solution/planner.py`: full-match orchestration and degradation boundaries.
 
-The competitive planner is intentionally empty. The service currently returns a
-valid empty command map after parsing and ingesting each turn.
+The V1 planner is active. It produces validated construction, movement, economy,
+recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. An
+empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-15 - v0.1 branch and reproducible submission package
+
+Changes:
+
+- Established `codex/v0` as the isolated `v0.x` iteration branch and set `VERSION`
+  to `v0.1`.
+- Added a standard-library archive builder that packages the complete runtime under
+  top-level `CoreGeek/`, validates every member, and prints a SHA-256 checksum.
+- Added the versioned `submissions/v0/` artifact location and synthetic tests that
+  prevent missing runtime modules, extra files, unsafe paths, or a broken wrapper.
+
+Reason:
+
+- Every platform upload must be reproducible and traceable to one code revision;
+  manual file selection risks silently omitting newly added strategy modules.
+
+Verification:
+
+- 89 standard-library synthetic unit tests pass under Python 3.14.6, including three
+  release-builder tests and the original 30 protocol-foundation tests.
+- The generated `v0.1` archive contains only `CoreGeek/main3.py` and all 20
+  `solution/*.py` modules; its builder and an independent archive listing agree.
+- A clean extraction of the generated archive starts successfully and returns valid
+  JSON for the bounded HTTP smoke request.
+- The exact `v0.1` archive SHA-256 is recorded in the commit and publication report.
+- Exact Python 3.11.10 execution remains a work-computer/platform calibration step.
+
+Workflow:
+
+- Compatible fixes become `v0.2`, `v0.3`, and so on on `codex/v0`.
+- A major strategy or architecture generation starts `codex/v1` and `v1.0`.
+- `main` is not updated by iteration work unless the user explicitly requests it.
+
+### 2026-09-15 - V1 active full-match code loop
+
+Changes:
+
+- Added bounded occupied-cell modeling, eight-direction pathfinding, legal diagonal
+  passage, interaction-cell routing, and conservative three-role reservations.
+- Added base-quadrant coordinate normalization and the `USER_OBSERVED` rule that the
+  normalized threat is forward while the fixed role exit remains behind the base.
+- Added two-railgun/one-rocket construction objectives, distinct worker/site
+  reservations, failed-build blacklisting, forward wall layers, and conservative
+  degradation after a rear threat observation.
+- Added dynamic defense/emergency/offensive budgets, resource value, mining, selling,
+  runtime-shop purchasing, wall construction, repair, and upgrade logistics.
+- Added distance-plus-buffer pre-night recall, weapon/controller assignment, four
+  effective controller-release levels, threat scoring, projected overkill control,
+  railgun-line value, rocket-area value, cooldown handling, and explicit
+  `targetTeam` gating for cross-map fire.
+- Added task/LLM/sandbox and treasure state machines with strict structured parsing,
+  bounded output, confidence gates, result feedback, and safe failure recovery.
+- Added opponent observations, `DEFEND`/`DEVELOP`/`SCORE_RACE`/`PRESSURE`/`FINISH`
+  modes, and reserve/evidence-gated one-or-two-Boss purchase/use logic.
+- Added a deterministic two-side, ten-day synthetic regression harness and a
+  read-only bounded Windows-compatible log summarizer.
+- Expanded validation to include visible movement occupancy, shared gold, weapon
+  count, backpack capacity, runtime vendor/shop presence, build occupancy, stone,
+  and cumulative item reservations.
+
+Strategic reason:
+
+- This creates the first non-empty vertical slice across all ten days while retaining
+  the fail-closed protocol boundary. Construction and defense happen before optional
+  economy or pressure, and every speculative mechanic has a disabled/degraded path.
+
+Local verification:
+
+- 86 standard-library synthetic unit tests pass, including the original 30 tests.
+- Both sides complete 1,300-turn synthetic regressions with zero invalid responses,
+  three final weapons, non-negative gold, and active decisions.
+- The local HTTP server starts, accepts the minimal smoke request, and accepts an
+  active synthetic request that returns task/build-path actions as valid JSON.
+- These results are `synthetic regression passed`; they are not platform win-rate or
+  game-mechanic proof.
+
+Evidence status:
+
+- `USER_OBSERVED`: upper-left base is threatened from the right; lower-right base is
+  threatened from the left. Normalized front is therefore positive x and the fixed
+  exit is behind it.
+- `CONFIRMED_SPEC`: movement geometry, day/night boundaries, action shapes, runtime
+  weapon fields, controller requirements, and three-weapon cap.
+- `UNVERIFIED_PLATFORM_BEHAVIOR`: exact build cells, robot routing/settlement, rear
+  opening safety, projectile-wall interaction, rocket overlap, night economy,
+  wave/Boss timing, `targetTeam` completeness, cross-map scoring, summon timing and
+  stacking, task/LLM/sandbox/treasure judging, and real defense-margin strength.
+
+Next platform work:
+
+1. Package the complete `solution/*.py` set under the proven `CoreGeek/` wrapper.
+2. Run low-stakes simulations on both sides and retain revision/archive hashes.
+3. Run `tools/diagnostics/summarize_match_log.py` on an exported JSON/JSONL log, or
+   manually return the bounded checklist in `docs/platform-calibration.md`.
+4. Promote repeatable evidence to `CONFIRMED_RUNTIME`, convert failures to sanitized
+   regression fixtures, and tune build candidates, recall margins, combat allocation,
+   night economy, and pressure thresholds.
+
+### 2026-09-15 - Local reference digest and fixed-opening V1 decision
+
+Changes:
+
+- Added a local-only structured reference index covering game rules, protocol,
+  runtime, SDK/package layout, competition process, source integrity, strategy
+  observations, conflicts, and experiment priorities.
+- Recorded the evidence hierarchy and the requirement to prefer runtime values over
+  static tables when sources disagree.
+- Replaced dynamic wall removal/rebuilding in V1 with a fixed opening opposite the
+  learned primary threat direction.
+- Expanded V1 scope to evaluate task, treasure, opponent, cross-map, and summon
+  systems behind safety and evidence gates.
+
+Reason:
+
+- Repeated PDF rendering and SDK scanning wastes time and context; future work should
+  consult a maintained local digest first while preserving the official originals as
+  final authority.
+- A fixed rear opening provides predictable role access with lower action, material,
+  and timing risk than routine wall removal.
+
+Verification:
+
+- Fully reviewed the available task, interface, SDK, runtime, platform-operation,
+  competition-format, grouping, request/response example, and reference-demo sources.
+- Recorded source hashes and known conflicts in the local inventory.
+- Confirmed `local/` remains excluded from Git; no official source was modified.
+
+Remaining assumptions:
+
+- Robot approach remains primarily one-directional on both sides and future maps.
+- The fixed rear opening is not selected as a robot route.
+- Nighttime collection and trade are legal in actual platform execution.
+- Natural Boss appearance around day four or five remains an observation, not a
+  specified fixed schedule.
 
 ### 2026-09-14 - Public repository initialization
 
@@ -137,7 +300,9 @@ Unverified assumptions:
 Next work:
 
 1. Re-run the suite under the exact Python 3.11.10 target on the work computer.
-2. Add occupied-cell modeling and eight-direction pathfinding.
-3. Add joint next-step reservations and collision tests.
-4. Implement the safe opening construction planner behind a feature flag.
-5. Convert each unverified mechanic into a bounded practice experiment.
+2. Implement the full-match V1 state/mode interfaces before enabling tactical actions.
+3. Add occupied-cell modeling, eight-direction pathfinding, and joint reservations.
+4. Implement three-weapon opening construction and fixed-rear-opening wall geometry.
+5. Connect economy, combat, controller release, task, treasure, opponent, and summon
+   planners through the shared safety boundary.
+6. Convert each unverified mechanic into a bounded practice experiment.
