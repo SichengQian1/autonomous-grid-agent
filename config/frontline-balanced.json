@@ -9,6 +9,8 @@
   "defense_layout": "frontline",
   "front_direction": "auto",
   "front_wall_target_count": 4,
+  "initial_flank_defense": true,
+  "initial_flank_depth": 1,
   "wall_maintenance_enabled": true,
   "wall_budget_fraction": 0.25,
   "wall_emergency_horizon": 3,

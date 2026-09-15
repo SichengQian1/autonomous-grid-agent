@@ -7,9 +7,12 @@ from .geometry import Pos, footprint_distance, neighbours
 from .layout import (
     DefenseLayout,
     WallWork,
+    built_or_submitted_walls,
+    _remembered_flank,
     register_delivery,
     register_wall_buy,
     remaining_wall_sites,
+    site_build_ready,
     unit_recent_damage,
     wall_budget_cap,
     wall_max_health,
@@ -48,25 +51,27 @@ def rank_wall_work(ctx: PlanningContext, layout: DefenseLayout | None) -> tuple[
         nearby = wall_pressure(turn, layout.front, memory, pos)
         is_front = pos in front_set
         is_flank = pos in flank_set
-        if not is_front and not is_flank and nearby <= 0 and recent <= 0 and night <= 0:
+        is_corner = pos in set(layout.corner_walls)
+        if not is_front and not is_flank and not is_corner and nearby <= 0 and recent <= 0 and night <= 0:
             continue
         urgency = 0
         if recent > 0 and nearby > 0:
             eta = _hold_rounds(wall.health, recent / max(1, config.wall_emergency_horizon))
             if eta <= config.wall_emergency_horizon:
                 urgency = 4
-        if urgency == 0 and night > 0 and (is_front or is_flank or nearby > 0):
+        classified = is_front or is_flank or is_corner
+        if urgency == 0 and night > 0 and (classified or nearby > 0):
             urgency = 3
-        if urgency == 0 and (is_front or is_flank) and nearby > 0:
+        if urgency == 0 and classified and nearby > 0:
             urgency = 2
-        if urgency == 0 and (is_front or is_flank) and wall.health < max_hp:
+        if urgency == 0 and classified and wall.health < max_hp:
             urgency = 1
         if urgency == 0:
             continue
         jobs.extend(_repair_and_upgrade(wall, max_hp, estimated, urgency, ctx))
     if turn.is_day:
         jobs.extend(_build_jobs(ctx, layout, existing))
-    order = {p: i for i, p in enumerate(layout.wall_order or layout.front_walls + layout.flank_walls)}
+    order = {p: i for i, p in enumerate(layout.wall_order or layout.front_walls + layout.corner_walls + layout.flank_walls)}
     def score(work: WallWork) -> tuple:
         # Carried items cost no new gold, but delivery still consumes actions.
         held = [u for u in turn.team_our.roles if u.alive and work.item in u.backpack]
@@ -90,8 +95,14 @@ def rank_wall_work(ctx: PlanningContext, layout: DefenseLayout | None) -> tuple[
         # survival takes precedence over its cheaper alternative.
         insufficient = bool(work.urgency == 4 and target is not None
                             and target.health + work.expected_hp_gain < recent_loss)
-        return (-work.urgency, -wall_pressure(turn, layout.front, memory, work.target),
-                insufficient, -value, order.get(work.target, 10**6), turn.coordinate_frame.normalize(work.target), work.kind)
+        pressure = -wall_pressure(turn, layout.front, memory, work.target)
+        sequence = order.get(work.target, 10**6)
+        kind_rank = 0 if work.kind != "build" else 1
+        if work.kind == "build":
+            return (-work.urgency, kind_rank, sequence, pressure, insufficient, -value,
+                    turn.coordinate_frame.normalize(work.target), work.kind)
+        return (-work.urgency, kind_rank, pressure, insufficient, -value, sequence,
+                turn.coordinate_frame.normalize(work.target), work.kind)
     jobs.sort(key=score)
     return tuple(jobs[:24])
 
@@ -102,6 +113,9 @@ def try_wall_work(ctx: PlanningContext, role: Unit, work: WallWork, max_trip: in
         return False
     if work.kind == "build":
         if role.role_type != ROLE_WORKER or not turn.is_day or "stone" not in role.backpack:
+            return False
+        if ctx.layout is not None and not site_build_ready(
+                ctx.layout, work.target, built_or_submitted_walls(turn, ctx.actions)):
             return False
         from .economy import EconomyPlanner
         controllers = tuple(p for w in ctx.layout.weapons for p in w.controller_cells) if ctx.layout else ()
@@ -240,19 +254,24 @@ def _build_jobs(ctx: PlanningContext, layout: DefenseLayout, existing: list[Unit
     memory = ctx.state.defense
     jobs: list[WallWork] = []
     front_built = sum(1 for p in layout.front_walls if p in built)
+    required = set(layout.required_wall_sites)
+    remembered = any(_remembered_flank(memory, side) > 0 for side in ("neg", "pos"))
     for site in sites:
         if site in ctx.nav.occupied or site in ctx.claimed:
             continue
         is_front = site in layout.front_walls
         nearby = wall_pressure(ctx.turn, layout.front, memory, site)
-        if is_front and front_built < ctx.config.front_wall_target_count:
+        if site in required:
+            urgency = 4 if nearby > 0 else 2
+            reason = "required_gap" if nearby > 0 else "required_connection"
+        elif is_front and front_built < ctx.config.front_wall_target_count:
             urgency = 4 if nearby > 0 else 2
             reason = "front_gap" if nearby > 0 else "first_front_segment"
         elif nearby > 0:
             urgency = 4
             reason = "pressured_flank_gap"
         else:
-            if front_built >= ctx.config.front_wall_target_count and not any(memory.flank_pressure.values()):
+            if front_built >= ctx.config.front_wall_target_count and not remembered:
                 continue
             urgency = 1
             reason = "optional_expand"

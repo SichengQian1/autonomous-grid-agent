@@ -60,6 +60,84 @@ shared planning context.
 
 ## Change Log
 
+### 2026-09-15 - Review and commit corner repairs
+
+- Reviewed the implementation against the corner-repair plan. Its 165 tests
+  passed, but additional synthetic cases exposed broken dependency chains when
+  a connector was blocked, stale live flank pressure, and unnecessary stone
+  retention after reaching the wall cap.
+- Preserve full geometric dependencies, including missing predecessors, and
+  validate them transitively before planning or building downstream walls.
+  Necessary front connectors also survive a smaller ordinary front-body quota.
+- Clear live flank pressure at dawn; historical pressure expires after its next
+  daytime. Late first-night observations are marked incomplete. Infeasible wall
+  targets stay visible in diagnostics without reserving stone indefinitely.
+- Five added tests failed before the review fixes (six failing subcases) and now
+  pass. All 170 tests and compilation passed under Python 3.11.15. Both frontline
+  profiles passed mirrored layout diagnostics. Four profiles passed startup and
+  five HTTP cases each; local servers were stopped.
+- Both standard and resource-rich synthetic openings completed the eight-cell
+  minimum line before the first night. This verifies construction, not competitive
+  win rate or real robot movement. The exact target environment remains untested.
+- User authorized local commits and a fresh frontline archive. Earlier archive
+  hashes below refer to older source; use the package generated from this review's
+  final commit. No remote push, platform upload or official match is authorized.
+
+### 2026-09-15 - First-night flanks and corner repairs
+
+- Frontline wall geometry now splits front body, outer corners and short flanks.
+  `front_wall_target_count` no longer blocks corners. Construction follows
+  edge-connected segments; a submitted BUILD satisfies a dependency, a MOVE does not.
+- `initial_flank_defense` (default false; both frontline configs true) keeps an
+  8-cell minimum line: 4 front body, 2 corners, 1 cell per side. `initial_flank_depth`
+  is 1..2. `max_walls` is unchanged and may degrade the line with an explicit reason.
+- Night observations store a bounded current/last-night flank summary. An empty
+  end-of-night snapshot still clears live pressure; the previous night's peak remains
+  for the next day's building. Night gathering still uses live robots and committed fire.
+- Verification: 165 tests and compilation under Python 3.11.15. Both frontline
+  configs passed left/right layout diagnostics. Regenerated
+  `artifacts/submission-frontline.tar.gz` (25 files, 46,501 bytes,
+  SHA256 `8aba61435559c87794e8fe7e357e8e4a5a37ab81cef2a260da6636708486f9a8`).
+  The archive was extracted outside the repo; `run.sh` with Python 3.11 passed
+  day/night/minimal plus empty/non-object/malformed/empty-body HTTP checks.
+  Servers were stopped. No commit, push, upload or official match.
+
+### 2026-09-15 - Plan first-night flanks and corner repairs
+
+- User reported first-night flank spillover and missing corners on day two.
+  Added `docs/frontline-corner-repair-plan.md`; strategy remains unchanged.
+- Synthetic probes reproduced zero-pressure flank omission, front-count-limited
+  corner omission even with high flank pressure, and loss of night pressure after
+  an empty final snapshot. These are code findings, not a replay of the actual match.
+- Plan: a small connected first-night front/corner/flank layout, separate corner
+  classification and construction dependencies, and bounded last-night pressure
+  summaries that do not change current-threat checks for safe nighttime gathering.
+- No new submission archive was generated. Existing packaging work is preserved.
+
+### 2026-09-15 - Build SDK-shaped submission archives
+
+- Added `tools/package_submission.py` and `make package`. User selected
+  `frontline` for the upload package; the normal repository launcher still uses
+  its existing defaults. Other profiles remain selectable when packaging.
+- The SDK PDF identifies Python 3.11.10 and the `CoreGeek/main3.py` entry point.
+  The builder places `CoreGeek/` at the archive root and adds an original thin
+  entry point, a shell launcher, 22 allowlisted runtime modules and one embedded
+  config. The PDF does not define tar extraction, launch commands or size limits;
+  exact platform acceptance remains unverified. Official materials are not copied.
+- Builds require Python 3.11, reject symlinked/missing inputs, check syntax and
+  isolated imports/config, normalize tar/gzip metadata and verify archive bytes
+  before atomically replacing the output. New runtime modules require an allowlist
+  update. Source contents still need review before packaging.
+- Generated `artifacts/submission-frontline.tar.gz` (25 files, 43,569 bytes).
+  The artifacts directory remains ignored by Git. No upload, commit or push ran.
+- Verification: all 145 tests and compilation passed under Python 3.11.15.
+  Seven packaging tests cover contents, metadata, repeatability, four profiles,
+  bad config/syntax, missing imports and symlink rejection. The actual archive
+  was extracted outside the repo and both `main3.py` and `run.sh` passed startup
+  plus day/night/malformed/non-object/empty HTTP checks (10 total), from an
+  unrelated directory with invalid inherited config/import paths. Servers stopped.
+- Python 3.11.10 on the target OS and official platform upload remain untested.
+
 ### 2026-09-15 - Commit frontline work
 
 - User authorized local commits. Grouped implementation, configurations, tests

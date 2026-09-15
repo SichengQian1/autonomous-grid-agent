@@ -92,9 +92,10 @@ profitability need live tests.
 `AGENT_CONFIG=config/baseline.json` uses two railguns and one rocket.
 `AGENT_CONFIG=config/balanced.json` selects the comparison composition.
 `AGENT_CONFIG=config/frontline.json` keeps that weapon pair and enables the
-optional front-facing layout plus wall maintenance. `frontline-balanced.json`
-does the same for the gatling/railgun/rocket comparison. Default configs stay
-on the legacy centre-facing sites. Frontline is a candidate, not a win-rate claim.
+optional front-facing layout, wall maintenance, and first-night flank prevention.
+`frontline-balanced.json` does the same for the gatling/railgun/rocket comparison.
+`initial_flank_defense` defaults to false so legacy configs are unchanged.
+Frontline is a candidate, not a win-rate claim.
 All tunable defaults live in `solution/rules.py`; JSON overrides are type checked.
 A false `enabled` switch restores the safe empty strategy.
 
@@ -117,9 +118,11 @@ success, target-machine timing and match strength require further evidence.
 ## Frontline audit corrections
 
 Wall layouts retain built-wall membership and a separate execution order. Actual
-living walls plus committed builds enforce `max_walls`; a hot front flank can
-precede unfinished frontage. Maintenance distinguishes travel to a shop, a sent
-purchase and item delivery, with bounded receipt waiting and retry after failure.
+living walls plus committed builds enforce `max_walls`. Outer corners are not
+counted against `front_wall_target_count`. A pressured side may bring its
+connection forward; isolated flanks cannot skip that joint. Maintenance
+distinguishes travel to a shop, a sent purchase and item delivery, with bounded
+receipt waiting and retry after failure.
 Every wall purchase preserves current base/medicine/weapon cash needs. Repair and
 upgrade ranking compares danger, short-term survival and HP gained per gold plus
 estimated role-action cost; `WALL_ACTION_GOLD_EQUIVALENT` is an experimental weight.

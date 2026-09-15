@@ -24,6 +24,7 @@ _BOOL_FIELDS = frozenset({
     "projectile_building_blocking",
     "allow_score_stealing",
     "wall_maintenance_enabled",
+    "initial_flank_defense",
 })
 _FLOAT_FIELDS = {
     "normal_turn_budget_seconds": (0.0, 4.0),
@@ -44,6 +45,7 @@ _INT_FIELDS = {
     "base_emergency_health": (0, 8192),
     "combat_candidate_limit": (0, 8192),
     "front_wall_target_count": (0, 10),
+    "initial_flank_depth": (1, 2),
     "wall_emergency_horizon": (1, 20),
     "wall_observation_history_rounds": (1, 260),
     "front_observation_limit": (1, 256),

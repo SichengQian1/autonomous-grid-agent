@@ -142,6 +142,8 @@ class StrategyConfig:
     defense_layout: str = DEFENSE_LAYOUT_LEGACY
     front_direction: str = FRONT_DIRECTION_AUTO
     front_wall_target_count: int = 4
+    initial_flank_defense: bool = False
+    initial_flank_depth: int = 1
     wall_maintenance_enabled: bool = False
     wall_budget_fraction: float = 0.25
     wall_emergency_horizon: int = 3

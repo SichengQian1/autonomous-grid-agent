@@ -154,7 +154,8 @@ class FrontlineRegressionTests(unittest.TestCase):
         ctx = self.context(raw)
         ctx.state.defense.front_robot_count = 6
         ctx.state.defense.flank_pressure = {'neg': 100, 'pos': 0}
-        layout = DefenseLayout((1, 0), 'user_prior', (), (Pos(6, 15), Pos(6, 16)), (Pos(5, 13),), (), 'synthetic')
+        layout = DefenseLayout((1, 0), 'user_prior', (), (Pos(6, 15), Pos(6, 16)), (Pos(5, 13),), (), 'synthetic',
+                               wall_order=(Pos(5, 13), Pos(6, 15), Pos(6, 16)))
         self.assertEqual(rank_wall_work(ctx, layout)[0].target, Pos(5, 13))
 
     def test_failed_purchase_retries_and_missing_feedback_expires(self):
@@ -230,8 +231,16 @@ class FrontlineRegressionTests(unittest.TestCase):
                 ctx.state.defense.front_robot_count = 1
                 ctx.state.defense.flank_pressure = {'neg': 100, 'pos': 80}
                 layout = plan_layout(ctx.turn, ctx.state.defense, ctx.config, ctx.deadline)
-                first_site = remaining_wall_sites(ctx.turn, layout)[0]
-                self.assertIn(first_site, layout.flank_walls)
+                remaining = remaining_wall_sites(ctx.turn, layout)
+                first_site = remaining[0]
+                # Isolated flanks must not skip the edge-connected corner/front joint.
+                self.assertNotIn(first_site, layout.flank_walls)
+                self.assertTrue(layout.corner_walls)
+                self.assertTrue(frozenset(layout.corner_walls).issubset(remaining))
+                flank_ranks = [remaining.index(p) for p in remaining if p in layout.flank_walls]
+                corner_ranks = [remaining.index(p) for p in layout.corner_walls if p in remaining]
+                self.assertTrue(flank_ranks)
+                self.assertLess(max(corner_ranks), min(flank_ranks))
                 raw['teamOur']['roles'][0]['backpack'] = ['stone']
                 raw['teamOur']['roles'][0]['pos'] = {'x': first_site.x + layout.front[0], 'y': first_site.y}
                 raw['roundNo'] += 1

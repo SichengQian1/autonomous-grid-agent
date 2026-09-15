@@ -5,7 +5,12 @@ from collections import Counter
 from .actions import Action, ActionType
 from .defense import base_cells, weapon_sites, wall_sites
 from .geometry import Pos, footprint_distance, neighbours
-from .layout import remaining_weapon_placements, remaining_wall_sites
+from .layout import (
+    built_or_submitted_walls,
+    remaining_weapon_placements,
+    remaining_wall_sites,
+    site_build_ready,
+)
 from .models import Unit
 from .planning import PlanningContext
 from .rules import (
@@ -99,8 +104,11 @@ class EconomyPlanner:
         layout = self.ctx.layout
         if self.config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and layout is not None:
             extra = set(layout.gates)
+            built = built_or_submitted_walls(self.turn, self.ctx.actions)
             for site in remaining_wall_sites(self.turn, layout):
                 if site in self.nav.occupied or site in self.ctx.claimed or site in extra:
+                    continue
+                if not site_build_ready(layout, site, built):
                     continue
                 route = self.nav.adjacent_route(role, site)
                 if route is None:
@@ -271,5 +279,10 @@ class EconomyPlanner:
             return False
         layout = self.ctx.layout
         if self.config.defense_layout == DEFENSE_LAYOUT_FRONTLINE and layout is not None:
-            return any(site not in self.nav.occupied for site in remaining_wall_sites(self.turn, layout))
+            built = built_or_submitted_walls(self.turn, self.ctx.actions)
+            if len(built) >= self.config.max_walls:
+                return False
+            # Keep infeasible required sites for diagnostics, not endless stone reserves.
+            needed = remaining_wall_sites(self.turn, layout)
+            return any(site not in built for site in needed)
         return any(p not in self.nav.occupied for p in wall_sites(self.turn, self.config.max_walls))

@@ -52,8 +52,10 @@ The baseline is enabled through `BaselinePlanner`:
 
 - `navigation.py`: bounded BFS, occupied cells, threat avoidance and reservations.
 - `defense.py`: footprint-based build rings, firing positions and controller pairing.
-- `layout.py`: optional frontline direction, joint weapon/wall plans and bounded observations.
-- `maintenance.py`: wall build/repair/upgrade ranking, item budget and delivery tasks.
+- `layout.py`: optional frontline direction, joint weapon/wall plans, wall-class
+  geometry and bounded night-pressure summaries.
+- `maintenance.py`: wall build/repair/upgrade ranking that follows construction
+  dependencies, item budget and delivery tasks.
 - `ballistics.py`: shared projectile blockers, excluding walls and bases but retaining weapon buildings.
 - `combat.py`: threat scoring, ray/area damage and joint target allocation.
 - `economy.py`: building, gathering, sales, supply purchases and upgrades.

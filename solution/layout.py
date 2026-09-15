@@ -20,6 +20,7 @@ from .rules import (
     ROLE_GATLING,
     ROLE_ROCKET,
     ROLE_WALL,
+    DAY_ROUNDS,
     ROUNDS_PER_DAY,
     StrategyConfig,
     WALL_DELIVERY_TIMEOUT_ROUNDS,
@@ -46,6 +47,23 @@ class DefenseLayout:
     gates: tuple[Pos, ...]
     reason: str
     wall_order: tuple[Pos, ...] = ()
+    corner_walls: tuple[Pos, ...] = ()
+    required_wall_sites: tuple[Pos, ...] = ()
+    wall_prerequisites: tuple[tuple[Pos, tuple[Pos, ...]], ...] = ()
+    unfinished_reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class WallPlan:
+    front_walls: tuple[Pos, ...]
+    corner_walls: tuple[Pos, ...]
+    flank_walls: tuple[Pos, ...]
+    gates: tuple[Pos, ...]
+    wall_order: tuple[Pos, ...]
+    required_wall_sites: tuple[Pos, ...]
+    wall_prerequisites: tuple[tuple[Pos, tuple[Pos, ...]], ...]
+    unfinished_reasons: tuple[str, ...]
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +109,26 @@ class DeliveryJob:
 
 
 @dataclass(slots=True)
+class FlankNightStats:
+    peak_pressure: float = 0.0
+    pressured_rounds: int = 0
+    last_pressured_round: int = -1
+    damaged: bool = False
+    interior_entry: bool = False
+
+
+@dataclass(slots=True)
+class NightPressureSummary:
+    game_day: int = -1
+    sides: dict[str, FlankNightStats] = field(
+        default_factory=lambda: {"neg": FlankNightStats(), "pos": FlankNightStats()}
+    )
+    samples_complete: bool = True
+    last_sample_round: int = -1
+    stale: bool = False
+
+
+@dataclass(slots=True)
 class DefenseMemory:
     layout: DefenseLayout | None = None
     weapons_frozen: bool = False
@@ -119,6 +157,8 @@ class DefenseMemory:
     last_map_sig: tuple | None = None
     prior_mismatch: bool = False
     last_reason: str = ""
+    current_night: NightPressureSummary | None = None
+    last_night: NightPressureSummary | None = None
 
     def reset(self) -> None:
         self.layout = None
@@ -148,6 +188,8 @@ class DefenseMemory:
         self.last_map_sig = None
         self.prior_mismatch = False
         self.last_reason = ""
+        self.current_night = None
+        self.last_night = None
 
 
 def wall_max_health(unit: Unit) -> tuple[int, bool]:
@@ -171,7 +213,7 @@ def observe_defense(turn: Turn, memory: DefenseMemory, config: StrategyConfig,
     skipped = memory.last_observed_round >= 0 and turn.round_no > memory.last_observed_round + 1
     _observe_gold(turn, memory, previous_actions, skipped)
     _observe_damage(turn, memory, config, skipped)
-    _observe_pressure(turn, memory, config)
+    _observe_pressure(turn, memory, config, skipped)
     _observe_deliveries(turn, memory)
     if any(u.alive and u.is_weapon for u in turn.team_our.roles):
         memory.weapons_frozen = True
@@ -232,8 +274,43 @@ def remaining_weapon_placements(turn: Turn, layout: DefenseLayout) -> tuple[Weap
 
 def remaining_wall_sites(turn: Turn, layout: DefenseLayout) -> tuple[Pos, ...]:
     existing = {u.pos for u in turn.team_our.roles if u.alive and u.role_type == ROLE_WALL and u.pos}
-    order = layout.wall_order or layout.front_walls + layout.flank_walls
+    order = layout.wall_order or layout.front_walls + layout.corner_walls + layout.flank_walls
     return tuple(p for p in order if p not in existing)
+
+
+def submitted_wall_positions(actions: tuple[Action, ...] | list[Action]) -> set[Pos]:
+    return {action.targets[0] for action in actions
+            if action.action_type == ActionType.BUILD and action.name == ROLE_WALL and action.targets}
+
+
+def wall_prereqs(layout: DefenseLayout, site: Pos) -> tuple[Pos, ...]:
+    for pos, deps in layout.wall_prerequisites:
+        if pos == site:
+            return deps
+    return ()
+
+
+def built_or_submitted_walls(turn: Turn, actions: tuple[Action, ...] | list[Action] = ()) -> set[Pos]:
+    cells = {u.pos for u in turn.team_our.roles if u.alive and u.role_type == ROLE_WALL and u.pos}
+    cells |= submitted_wall_positions(actions)
+    return cells
+
+
+def site_build_ready(layout: DefenseLayout, site: Pos, built: set[Pos]) -> bool:
+    return _dependencies_ready(site, built, dict(layout.wall_prerequisites))
+
+
+def _dependencies_ready(site: Pos, built: set[Pos], dependencies: dict[Pos, tuple[Pos, ...]]) -> bool:
+    pending = list(dependencies.get(site, ()))
+    seen: set[Pos] = set()
+    while pending:
+        dep = pending.pop()
+        if dep == site or dep not in built:
+            return False
+        if dep not in seen:
+            seen.add(dep)
+            pending.extend(dependencies.get(dep, ()))
+    return True
 
 
 def _map_signature(turn: Turn) -> tuple:
@@ -429,7 +506,7 @@ def _layout_structurally_ok(layout: DefenseLayout | None, turn: Turn) -> bool:
                          if u.alive and not u.is_human and u.pos == placement.pos), None)
         if occupant is not None and occupant.role_type != placement.role_type:
             return False
-    for cell in layout.front_walls + layout.flank_walls + layout.gates:
+    for cell in layout.front_walls + layout.corner_walls + layout.flank_walls + layout.gates:
         if not turn.map_info.contains(cell) or footprint_distance(cell, base) != 2:
             return False
     return True
@@ -512,59 +589,256 @@ def _choose_gates(yellow: tuple[Pos, ...], nfront: tuple[int, int], edge: int,
     return tuple(gates[:2])
 
 
+def _edge_neighbours(pos: Pos) -> tuple[Pos, ...]:
+    return (Pos(pos.x + 1, pos.y), Pos(pos.x - 1, pos.y),
+            Pos(pos.x, pos.y + 1), Pos(pos.x, pos.y - 1))
+
+
+def _game_day(round_no: int) -> int:
+    return max(0, round_no - 1) // ROUNDS_PER_DAY
+
+
+def _remembered_flank(memory: DefenseMemory, side: str) -> float:
+    value = float(memory.flank_pressure.get(side, 0.0))
+    for summary in (memory.current_night, memory.last_night):
+        if summary is None or summary.stale:
+            continue
+        stats = summary.sides.get(side)
+        if stats is not None:
+            value = max(value, stats.peak_pressure)
+    return value
+
+
+def _side_of(pos: Pos, nfront: tuple[int, int], origin: float, turn: Turn) -> str:
+    return "neg" if _lateral(pos, nfront, origin, turn) < 0 else "pos"
+
+
 def wall_pressure(turn: Turn, front: tuple[int, int], memory: DefenseMemory, pos: Pos) -> float:
     nfront, edge, origin = _front_frame(_base_cells(turn), front, turn)
     damage = _wall_recent_damage(memory, pos)
+    side = _side_of(pos, nfront, origin, turn)
+    layout = memory.layout
+    if layout is not None and pos in layout.corner_walls:
+        return _remembered_flank(memory, side) + damage
     if _forward(pos, nfront, edge, turn) >= 2:
         return float(memory.front_robot_count + damage)
-    side = "neg" if _lateral(pos, nfront, origin, turn) < 0 else "pos"
-    return memory.flank_pressure.get(side, 0.0) + damage
+    return _remembered_flank(memory, side) + damage
 
 
-def _plan_walls(turn: Turn, weapons: tuple[WeaponPlacement, ...], front: tuple[int, int],
-                memory: DefenseMemory, config: StrategyConfig, blocked: set[Pos],
-                deadline: float) -> tuple[tuple[Pos, ...], tuple[Pos, ...], tuple[Pos, ...], str, tuple[Pos, ...]]:
+def _ring_classes(turn: Turn, front: tuple[int, int], gates: set[Pos]
+                  ) -> tuple[tuple[Pos, ...], dict[str, Pos], dict[str, list[Pos]],
+                             tuple[int, int], int, float]:
     base = _base_cells(turn)
     yellow = _ring(turn, 2)
     nfront, edge, origin = _front_frame(base, front, turn)
     frame = turn.coordinate_frame
+    usable = [p for p in yellow if p not in gates]
+    if not usable:
+        return (), {}, {"neg": [], "pos": []}, nfront, edge, origin
+    max_fwd = max(_forward(p, nfront, edge, turn) for p in usable)
+    front_edge = [p for p in usable if _forward(p, nfront, edge, turn) == max_fwd]
+    front_edge.sort(key=lambda p: (_lateral(p, nfront, origin, turn), frame.normalize(p)))
+    corners: dict[str, Pos] = {}
+    body: tuple[Pos, ...]
+    if len(front_edge) >= 2:
+        corners[_side_of(front_edge[0], nfront, origin, turn)] = front_edge[0]
+        corners[_side_of(front_edge[-1], nfront, origin, turn)] = front_edge[-1]
+        if _side_of(front_edge[0], nfront, origin, turn) == _side_of(front_edge[-1], nfront, origin, turn):
+            corners = {"neg": front_edge[0], "pos": front_edge[-1]}
+        body = tuple(front_edge[1:-1])
+    elif len(front_edge) == 1:
+        corners[_side_of(front_edge[0], nfront, origin, turn)] = front_edge[0]
+        body = ()
+    else:
+        body = ()
+    yellow_set = set(yellow)
+    chains: dict[str, list[Pos]] = {"neg": [], "pos": []}
+    for side, corner in corners.items():
+        current = corner
+        seen = {corner}
+        chain: list[Pos] = []
+        while True:
+            options = []
+            for nxt in _edge_neighbours(current):
+                if nxt not in yellow_set or nxt in seen or nxt in gates:
+                    continue
+                if _forward(nxt, nfront, edge, turn) >= _forward(current, nfront, edge, turn):
+                    continue
+                options.append(nxt)
+            if not options:
+                break
+            options.sort(key=lambda p: (-_forward(p, nfront, edge, turn),
+                                        abs(_lateral(p, nfront, origin, turn) - _lateral(corner, nfront, origin, turn)),
+                                        frame.normalize(p)))
+            current = options[0]
+            seen.add(current)
+            chain.append(current)
+        chains[side] = chain
+    return body, corners, chains, nfront, edge, origin
+
+
+def _adjacent_body(corner: Pos, body: tuple[Pos, ...]) -> Pos | None:
+    for cell in body:
+        if abs(cell.x - corner.x) + abs(cell.y - corner.y) == 1:
+            return cell
+    return None
+
+
+def _unique(cells: list[Pos]) -> list[Pos]:
+    seen: set[Pos] = set()
+    ordered: list[Pos] = []
+    for cell in cells:
+        if cell in seen:
+            continue
+        seen.add(cell)
+        ordered.append(cell)
+    return ordered
+
+
+def _plan_walls(turn: Turn, weapons: tuple[WeaponPlacement, ...], front: tuple[int, int],
+                memory: DefenseMemory, config: StrategyConfig, blocked: set[Pos],
+                deadline: float) -> WallPlan:
+    yellow = _ring(turn, 2)
+    nfront, edge, origin = _front_frame(_base_cells(turn), front, turn)
+    frame = turn.coordinate_frame
     controllers = {cell for weapon in weapons for cell in weapon.controller_cells}
     gates = _choose_gates(yellow, nfront, edge, origin, blocked | controllers, turn)
+    gate_set = set(gates)
+    body, corners, chains, nfront, edge, origin = _ring_classes(turn, front, gate_set)
     existing = {u.pos for u in turn.team_our.roles if u.alive and u.role_type == ROLE_WALL and u.pos}
-    # Geometry classifies existing walls too; availability is a separate concern.
-    front_face = {p for p in yellow if _forward(p, nfront, edge, turn) >= 2}
-    flank_face = {p for p in yellow if 0 <= _forward(p, nfront, edge, turn) < 2}
-    available = (front_face | flank_face) - set(gates) - controllers - existing
-    target = min(config.front_wall_target_count, config.max_walls)
-    front_count = len(existing & front_face)
-    selected: list[Pos] = []
-    capacity = max(0, config.max_walls - len(existing))
-    candidates = sorted(available, key=lambda p: (
-        -wall_pressure(turn, front, memory, p), p not in front_face,
-        -_forward(p, nfront, edge, turn), abs(_lateral(p, nfront, origin, turn)), frame.normalize(p)))
-    for cell in candidates:
-        if len(selected) >= capacity or time.monotonic() >= deadline:
-            break
-        if cell in blocked:
+    body_sorted = sorted(body, key=lambda p: (abs(_lateral(p, nfront, origin, turn)),
+                                              _lateral(p, nfront, origin, turn), frame.normalize(p)))
+    body_target = tuple(body_sorted[:config.front_wall_target_count])
+    pressures = {side: _remembered_flank(memory, side) for side in ("neg", "pos")}
+    takes = {"neg": 0, "pos": 0}
+    needed = {"neg": False, "pos": False}
+    disconnected = {"neg": False, "pos": False}
+    for side in ("neg", "pos"):
+        chain = chains[side]
+        corner = corners.get(side)
+        disconnected[side] = bool(chain) and any(cell in existing for cell in chain) and (
+            corner is None or corner not in existing)
+        needed[side] = bool(config.initial_flank_defense or pressures[side] > 0 or disconnected[side])
+        if not needed[side]:
             continue
-        hot = wall_pressure(turn, front, memory, cell) > 0
-        if cell in front_face:
-            if front_count >= target:
-                continue
-        elif not hot:
+        take = config.initial_flank_depth if config.initial_flank_defense else 0
+        if pressures[side] > 0:
+            take = max(take, sum(1 for cell in chain if 0 <= _forward(cell, nfront, edge, turn) < 2))
+        if disconnected[side]:
+            last = max((index for index, cell in enumerate(chain) if cell in existing), default=-1)
+            take = max(take, last + 1)
+        takes[side] = min(len(chain), max(take, 1 if needed[side] else 0))
+    body_chains = {
+        side: sorted((p for p in body if _side_of(p, nfront, origin, turn) == side),
+                     key=lambda p: (abs(_lateral(p, nfront, origin, turn)), frame.normalize(p)))
+        for side in ("neg", "pos")
+    }
+    # Connectors are structural requirements, even with a smaller ordinary front quota.
+    body_target = tuple(_unique(list(body_target) + [p for side in ("neg", "pos")
+                                                   if needed[side] for p in body_chains[side]]))
+    dependencies: dict[Pos, tuple[Pos, ...]] = {}
+    for side in ("neg", "pos"):
+        segment = list(body_chains[side])
+        if side in corners:
+            segment.append(corners[side])
+        segment.extend(chains[side])
+        for previous, cell in zip(segment, segment[1:]):
+            dependencies[cell] = (previous,)
+    required: list[Pos] = list(body_target)
+    for side in ("neg", "pos"):
+        if not needed[side]:
+            continue
+        corner = corners.get(side)
+        if corner is not None:
+            required.append(corner)
+        required.extend(chains[side][:takes[side]])
+    required = _unique(required)
+
+    def side_segment(side: str, include_body: bool) -> list[Pos]:
+        cells: list[Pos] = []
+        corner = corners.get(side)
+        if include_body and corner is not None:
+            cells.extend(body_chains[side])
+        if needed[side] and corner is not None:
+            cells.append(corner)
+        if needed[side]:
+            cells.extend(chains[side][:takes[side]])
+        return cells
+
+    hot_neg = pressures["neg"] > 0 or disconnected["neg"]
+    hot_pos = pressures["pos"] > 0 or disconnected["pos"]
+    if hot_neg and not hot_pos:
+        desired = side_segment("neg", True) + [cell for cell in body_target]
+        desired.extend(side_segment("pos", False))
+    elif hot_pos and not hot_neg:
+        desired = side_segment("pos", True) + [cell for cell in body_target]
+        desired.extend(side_segment("neg", False))
+    else:
+        desired = list(body_target)
+        for side in ("neg", "pos"):
+            corner = corners.get(side)
+            if needed[side] and corner is not None:
+                desired.append(corner)
+        for side in ("neg", "pos"):
+            if needed[side] and chains[side][:1]:
+                desired.append(chains[side][0])
+        hotter = sorted(("neg", "pos"), key=lambda side: -pressures[side])
+        for side in hotter:
+            if takes[side] > 1:
+                desired.extend(chains[side][1:takes[side]])
+    desired = _unique(desired)
+    required_set = set(required)
+    capacity = max(0, config.max_walls - len(existing))
+    selected: list[Pos] = []
+    reasons: list[str] = []
+    for cell in desired:
+        if cell in existing or cell in selected:
+            continue
+        if time.monotonic() >= deadline:
+            if cell in required_set:
+                reasons.append("deadline")
+            break
+        if len(selected) >= capacity:
+            if cell in required_set:
+                reasons.append("max_walls")
+            continue
+        if not _dependencies_ready(cell, existing | set(selected), dependencies):
+            if cell in required_set:
+                reasons.append("dependency")
+            continue
+        if cell in blocked or cell in controllers or cell in gate_set:
+            if cell in required_set:
+                reasons.append("occupied")
+            continue
+        if not turn.map_info.contains(cell):
+            if cell in required_set:
+                reasons.append("map_edge")
             continue
         trial = selected + [cell]
-        if not _connectivity(turn, weapons, set(trial) | existing, set(gates), blocked):
+        if not _connectivity(turn, weapons, set(trial) | existing, gate_set, blocked):
+            if cell in required_set:
+                reasons.append("connectivity")
             continue
         selected.append(cell)
-        front_count += cell in front_face
-    classified = existing | set(selected)
-    fronts = tuple(sorted(classified & front_face, key=frame.normalize))
-    flanks = tuple(sorted(classified & flank_face, key=frame.normalize))
-    # Keep the execution order distinct from stable geometric membership.
-    order = tuple(selected) + tuple(sorted(existing & (front_face | flank_face), key=frame.normalize))
-    reason = "frontline_flank_priority" if selected and selected[0] in flank_face else "frontline"
-    return fronts, flanks, gates, reason, order
+    chain_cells = set(chains["neg"]) | set(chains["pos"])
+    geom = set(body) | set(corners.values()) | chain_cells
+    classified = (existing | set(selected)) & geom
+    fronts = tuple(sorted(classified & set(body), key=frame.normalize))
+    corner_walls = tuple(sorted(classified & set(corners.values()), key=frame.normalize))
+    flanks = tuple(sorted(classified & chain_cells, key=frame.normalize))
+    order = tuple(selected) + tuple(sorted(existing & geom, key=frame.normalize))
+    # Retain missing predecessors; filtering them out would recreate corner gaps.
+    deps = tuple(dependencies.items())
+    unfinished = [cell for cell in required if cell not in existing and cell not in selected]
+    if unfinished and capacity <= len(selected) and "max_walls" not in reasons:
+        reasons.append("max_walls")
+    reason = "frontline"
+    if selected:
+        first = selected[0]
+        if first in chain_cells or first in set(corners.values()):
+            reason = "frontline_flank_priority"
+    return WallPlan(fronts, corner_walls, flanks, gates, order, tuple(required),
+                    tuple(deps), tuple(dict.fromkeys(reasons)), reason)
 
 
 def _rank_cells(cells: list[Pos], role_type: str, turn: Turn, front: tuple[int, int],
@@ -711,22 +985,39 @@ def _evaluate_weapons(turn: Turn, config: StrategyConfig, front: tuple[int, int]
     return DefenseLayout(front, source, weapons, (), (), (), "weapons_only")
 
 
+def _apply_wall_plan(skeleton: DefenseLayout, plan: WallPlan) -> DefenseLayout:
+    return replace(
+        skeleton,
+        front_walls=plan.front_walls,
+        flank_walls=plan.flank_walls,
+        gates=plan.gates,
+        reason=plan.reason,
+        wall_order=plan.wall_order,
+        corner_walls=plan.corner_walls,
+        required_wall_sites=plan.required_wall_sites,
+        wall_prerequisites=plan.wall_prerequisites,
+        unfinished_reasons=plan.unfinished_reasons,
+    )
+
+
 def _with_walls(turn: Turn, memory: DefenseMemory, config: StrategyConfig,
                 skeleton: DefenseLayout, blocked: set[Pos], deadline: float) -> DefenseLayout | None:
-    fronts, flanks, gates, reason, order = _plan_walls(
-        turn, skeleton.weapons, skeleton.front, memory, config, blocked, deadline)
-    layout = replace(skeleton, front_walls=fronts, flank_walls=flanks, gates=gates, reason=reason, wall_order=order)
+    plan = _plan_walls(turn, skeleton.weapons, skeleton.front, memory, config, blocked, deadline)
+    layout = _apply_wall_plan(skeleton, plan)
     base = _base_cells(turn)
     blockers = projectile_blockers(turn) | {w.pos for w in layout.weapons}
-    front_ok, _ = _coverage(turn, layout.weapons, blockers, _test_points(turn, layout.front, base, fronts), config)
+    front_ok, _ = _coverage(turn, layout.weapons, blockers,
+                            _test_points(turn, layout.front, base, plan.front_walls), config)
     if not front_ok:
-        layout = replace(layout, front_walls=(), flank_walls=(), wall_order=(), reason="coverage_limited")
+        layout = replace(layout, front_walls=(), flank_walls=(), wall_order=(), corner_walls=(),
+                         required_wall_sites=(), wall_prerequisites=(), unfinished_reasons=(),
+                         reason="coverage_limited")
         front_ok, _ = _coverage(turn, layout.weapons, projectile_blockers(turn) | {w.pos for w in layout.weapons},
                                 _test_points(turn, layout.front, base, ()), config)
         if not front_ok:
             return None
-    if not _connectivity(turn, layout.weapons, set(layout.front_walls) | set(layout.flank_walls),
-                         set(layout.gates), blocked):
+    walls = set(layout.front_walls) | set(layout.corner_walls) | set(layout.flank_walls)
+    if not _connectivity(turn, layout.weapons, walls, set(layout.gates), blocked):
         return None
     return layout
 
@@ -734,12 +1025,12 @@ def _with_walls(turn: Turn, memory: DefenseMemory, config: StrategyConfig,
 def _refresh_walls(turn: Turn, layout: DefenseLayout, memory: DefenseMemory,
                    config: StrategyConfig, deadline: float) -> DefenseLayout | None:
     blocked = _static_blocked(turn)
-    fronts, flanks, gates, reason, order = _plan_walls(
-        turn, layout.weapons, layout.front, memory, config, blocked, deadline)
-    refreshed = replace(layout, front_walls=fronts, flank_walls=flanks, gates=gates, reason=reason, wall_order=order)
+    plan = _plan_walls(turn, layout.weapons, layout.front, memory, config, blocked, deadline)
+    refreshed = _apply_wall_plan(layout, plan)
     if not _layout_structurally_ok(refreshed, turn):
         return None
-    if not _connectivity(turn, refreshed.weapons, set(fronts) | set(flanks), set(gates), blocked):
+    walls = set(plan.front_walls) | set(plan.corner_walls) | set(plan.flank_walls)
+    if not _connectivity(turn, refreshed.weapons, walls, set(plan.gates), blocked):
         return layout
     return refreshed
 
@@ -761,9 +1052,70 @@ def _sector(dx: int, dy: int) -> str:
             (-1, 0): "W", (-1, -1): "SW", (0, -1): "S", (1, -1): "SE"}.get((sx, sy), "C")
 
 
-def _observe_pressure(turn: Turn, memory: DefenseMemory, config: StrategyConfig) -> None:
+def _mark_summary_stale(memory: DefenseMemory, day: int) -> None:
+    if memory.last_night is not None and memory.last_night.game_day < day - 1:
+        memory.last_night.stale = True
+
+
+def _refresh_night_phase(turn: Turn, memory: DefenseMemory, skipped: bool) -> None:
+    day = _game_day(turn.round_no)
+    if skipped and memory.current_night is not None:
+        memory.current_night.samples_complete = False
+    if turn.is_day:
+        memory.flank_pressure = {}
+        if memory.current_night is not None:
+            memory.last_night = memory.current_night
+            memory.current_night = None
+        _mark_summary_stale(memory, day)
+        return
+    if memory.current_night is None or memory.current_night.game_day != day:
+        memory.flank_pressure = {}
+        if memory.current_night is not None and memory.current_night.game_day < day:
+            memory.last_night = memory.current_night
+        memory.current_night = NightPressureSummary(game_day=day)
+        if skipped or turn.round_no != day * ROUNDS_PER_DAY + DAY_ROUNDS + 1:
+            memory.current_night.samples_complete = False
+    if memory.last_night is not None:
+        memory.last_night.stale = True  # Previous-night evidence applies only to the next daytime.
+    _mark_summary_stale(memory, day)
+
+
+def _record_night_sample(turn: Turn, memory: DefenseMemory, flanks: dict[str, float],
+                         interior: dict[str, bool], nfront: tuple[int, int], origin: float) -> None:
+    night = memory.current_night
+    if night is None or night.last_sample_round == turn.round_no:
+        return
+    night.last_sample_round = turn.round_no
+    night_start = night.game_day * ROUNDS_PER_DAY + DAY_ROUNDS
+    for side in ("neg", "pos"):
+        stats = night.sides.setdefault(side, FlankNightStats())
+        value = flanks.get(side, 0.0)
+        if value > stats.peak_pressure:
+            stats.peak_pressure = value
+        if value > 0:
+            stats.pressured_rounds += 1
+            stats.last_pressured_round = turn.round_no
+        if interior.get(side):
+            stats.interior_entry = True
+    for round_no, unit_id, _sector, _amount in memory.damage_events:
+        if round_no <= night_start:
+            continue
+        sample = memory.last_hp.get(unit_id)
+        if sample is None or sample.role_type != ROLE_WALL or sample.pos is None:
+            continue
+        side = _side_of(sample.pos, nfront, origin, turn)
+        night.sides.setdefault(side, FlankNightStats()).damaged = True
+
+
+def _observe_pressure(turn: Turn, memory: DefenseMemory, config: StrategyConfig,
+                      skipped: bool = False) -> None:
+    _refresh_night_phase(turn, memory, skipped)
     base = _base_cells(turn)
     if not base or turn.is_day:
+        return
+    if not turn.robots_observed:
+        if memory.current_night is not None:
+            memory.current_night.samples_complete = False
         return
     centroid = Pos(sum(p.x for p in base) // len(base), sum(p.y for p in base) // len(base))
     front = memory.front or _geometric_front(turn) or (1, 0)
@@ -772,7 +1124,10 @@ def _observe_pressure(turn: Turn, memory: DefenseMemory, config: StrategyConfig)
     samples = 0
     front_robots: list[Pos] = []
     flanks = {"neg": 0.0, "pos": 0.0}
+    interior = {"neg": False, "pos": False}
     majority = {"E": 0.0, "W": 0.0}
+    _, corners, _, _, _, _ = _ring_classes(turn, front, set())
+    span = max((abs(_lateral(cell, nfront, origin, turn)) for cell in corners.values()), default=0.0)
     for robot in turn.robots:
         if samples >= config.front_observation_limit:
             break
@@ -803,6 +1158,8 @@ def _observe_pressure(turn: Turn, memory: DefenseMemory, config: StrategyConfig)
         if near_flank or (fwd >= 0 and abs(lat) >= 2 and footprint_distance(robot.pos, base) <= 6):
             key = "neg" if lat < 0 else "pos"
             flanks[key] += weight
+        if 0 <= fwd < 2 and span and abs(lat) + 1e-6 < span:
+            interior["neg" if lat < 0 else "pos"] = True
         memory.last_robot_pos[robot.robot_id] = robot.pos
     memory.pressure = scores
     memory.front_robot_count = len(front_robots)
@@ -812,6 +1169,7 @@ def _observe_pressure(turn: Turn, memory: DefenseMemory, config: StrategyConfig)
     else:
         memory.front_width = 0
     memory.flank_pressure = flanks
+    _record_night_sample(turn, memory, flanks, interior, nfront, origin)
     observed = None
     if majority["E"] > majority["W"] * 1.5 and majority["E"] > 0:
         observed = (1, 0)

@@ -29,8 +29,10 @@ Use a lexicographic decision hierarchy:
 - Build walls according to observed threat lanes rather than a permanently fixed template.
 - Keep the legacy centre-facing sites as the default. The optional `frontline`
   layout places the rocket rearward, line weapons on side-rear firing lanes, and
-  a short front wall with rear-side gates. Flank cells may be filled before the
-  frontage target when crowding pressure is observed. This remains a candidate.
+  a short front wall with rear-side gates. Outer corners are classified apart from
+  the front-body quota. With `initial_flank_defense`, the first-night target is a
+  connected 8-cell line (4 front body, 2 corners, 1 cell per side). Isolated
+  flanks wait for that connection. This remains a candidate.
 - Use tasks as a primary score and income engine when return-to-base safety permits.
 
 ## Unverified High-Value Hypotheses
@@ -99,6 +101,8 @@ treasure feedback persists until the next match and prevents further probing.
 See `baseline.md` for verification scope and remaining platform checks.
 
 Walls and bases block movement but do not block weapon trajectories (user-confirmed).
-Keep weapon-building occlusion configurable and conservative. Prioritize actual
-front/flank pressure with a shared construction order; retain built-wall classes
-for maintenance and apply the wall cap to living plus committed structures.
+Keep weapon-building occlusion configurable and conservative. Front body, corners
+and flanks share one construction order and maintenance class. A pressured side
+may build its connection early; it must not skip the corner. Apply the wall cap
+to living plus committed structures. Last-night flank summaries inform daytime
+building only; they do not lock night gathering.

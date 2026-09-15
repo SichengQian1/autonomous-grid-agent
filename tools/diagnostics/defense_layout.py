@@ -68,7 +68,9 @@ def _ascii(turn: Turn, layout) -> str:
         for gate in layout.gates:
             marks[gate] = "E"
         for wall in layout.flank_walls:
-            marks[wall] = "F"
+            marks[wall] = "S"
+        for wall in getattr(layout, "corner_walls", ()):
+            marks[wall] = "C"
         for wall in layout.front_walls:
             marks[wall] = "W"
         for weapon in layout.weapons:
@@ -96,9 +98,27 @@ def _summary(turn: Turn, layout, memory, config) -> str:
         cells = ",".join(f"({c.x},{c.y})" for c in weapon.controller_cells)
         lines.append(f"weapon {weapon.role_type} ({weapon.pos.x},{weapon.pos.y}) controllers={cells}")
     lines.append("front_walls=" + ",".join(f"({p.x},{p.y})" for p in layout.front_walls[:8]))
+    lines.append("corner_walls=" + ",".join(f"({p.x},{p.y})" for p in layout.corner_walls[:4]))
     lines.append("flank_walls=" + ",".join(f"({p.x},{p.y})" for p in layout.flank_walls[:8]))
+    required = ",".join(f"({p.x},{p.y})" for p in layout.required_wall_sites[:12])
+    lines.append("required_wall_sites=" + required)
+    existing = {u.pos for u in turn.team_our.roles if u.alive and u.role_type == "wall" and u.pos}
+    missing = [p for p in layout.required_wall_sites if p not in existing]
+    lines.append("required_gaps=" + ",".join(f"({p.x},{p.y})" for p in missing[:12]))
+    deps = [f"({p.x},{p.y})<-" + ",".join(f"({d.x},{d.y})" for d in reqs)
+            for p, reqs in layout.wall_prerequisites[:8]]
+    lines.append("wall_prerequisites=" + ";".join(deps))
+    lines.append("unfinished_reasons=" + ",".join(layout.unfinished_reasons[:6]))
     lines.append("wall_order=" + ",".join(f"({p.x},{p.y})" for p in layout.wall_order[:12]))
     lines.append("gates=" + ",".join(f"({p.x},{p.y})" for p in layout.gates))
+    live = ",".join(f"{side}:{memory.flank_pressure.get(side, 0):.1f}" for side in ("neg", "pos"))
+    lines.append("live_flank_pressure=" + live)
+    previous = memory.last_night
+    if previous is None:
+        lines.append("last_night=none")
+    else:
+        peaks = ",".join(f"{side}:{previous.sides[side].peak_pressure:.1f}" for side in ("neg", "pos"))
+        lines.append(f"last_night day={previous.game_day} stale={previous.stale} peaks={peaks}")
     lines.append(_ascii(turn, layout))
     return "\n".join(lines)
 
@@ -116,7 +136,7 @@ def _verify(turn: Turn, layout, config) -> list[str]:
             issues.append(f"weapon not on blue ring: {weapon.pos}")
         if not weapon.controller_cells:
             issues.append(f"weapon missing controller: {weapon.pos}")
-    for wall in layout.front_walls + layout.flank_walls:
+    for wall in layout.front_walls + layout.corner_walls + layout.flank_walls:
         if footprint_distance(wall, base) != 2:
             issues.append(f"wall not on yellow ring: {wall}")
         if wall in layout.gates:
@@ -124,6 +144,17 @@ def _verify(turn: Turn, layout, config) -> list[str]:
     controllers = [cell for weapon in layout.weapons for cell in weapon.controller_cells]
     if len(set(controllers)) < min(3, len(controllers)):
         issues.append("controller cells are not distinct")
+    if config.initial_flank_defense:
+        if len(layout.corner_walls) < 2 and "map_edge" not in layout.unfinished_reasons:
+            issues.append("missing outer corners")
+        for site, deps in layout.wall_prerequisites:
+            if deps and all(abs(site.x - dep.x) + abs(site.y - dep.y) != 1 for dep in deps):
+                issues.append(f"required segment not edge-connected: {site}")
+        built = {u.pos for u in turn.team_our.roles if u.alive and u.role_type == "wall" and u.pos}
+        planned = set(layout.front_walls) | set(layout.corner_walls) | set(layout.flank_walls)
+        missing_required = [p for p in layout.required_wall_sites if p not in planned and p not in built]
+        if missing_required and not layout.unfinished_reasons:
+            issues.append("required wall omitted without a retreat reason")
     return issues
 
 
