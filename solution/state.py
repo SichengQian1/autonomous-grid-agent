@@ -28,6 +28,7 @@ class WorldState:
     rear_threat_observed: bool = False
     previous_station_health: int | None = None
     recall_day: int = -1
+    recalled_roles: dict[int, int] = field(default_factory=dict)
     market: MarketMemory = field(default_factory=MarketMemory)
 
     def reset(self, turn: Turn) -> None:
@@ -49,6 +50,7 @@ class WorldState:
         self.rear_threat_observed = False
         self.previous_station_health = None
         self.recall_day = -1
+        self.recalled_roles.clear()
         self.market = MarketMemory()
 
     def ingest(self, turn: Turn) -> None:

@@ -206,7 +206,10 @@ class EconomyManager:
         can_wait = developed and turn.team_our.gold >= config.treasure_gold_reserve and budget.margin > 3
         rising = any((can_wait and state.market.will_rise(n,turn.day_index)) or state.market.expected_price(n, prices.get(n, 0), turn.day_index, can_wait=can_wait) > prices.get(n, 0)
                      for n in inventory)
-        urgent_cash = turn.team_our.gold < 100 + budget.emergency <= turn.team_our.gold + value
+        upgrade_price = next((item.price for item in turn.weapon_shop if item.name == "WeaponUpgradeVoucher1"), 100)
+        first_power = any(w.role_type == "rocket" and w.level >= 2 for w in existing_weapons(turn))
+        cash_goal = upgrade_price + (budget.emergency if first_power else 0)
+        urgent_cash = turn.team_our.gold < cash_goal <= turn.team_our.gold + value
         near_dusk = turn.is_day and turn.rounds_until_night <= vendor_distance + home_distance + config.recall_safety_buffer + 2
         if count == 0:
             self.selling.discard(worker.unit_id)
@@ -222,9 +225,14 @@ class EconomyManager:
                     return EconomyPlan(action=Action(worker.unit_id, ActionType.SELL, name=name, quantity=inventory[name]))
                 return EconomyPlan(move=MoveIntent(worker.unit_id, vendor_goals, 35))
         vendor_map = distance_field(grid, vendor_goals)
+        home_map = distance_field(grid, home_goals)
+        frame = turn.coordinate_frame
+        vendor_home = min((home_map.get(p, 10000) for p in vendor_goals), default=10000)
         ranked = []
         for zone in turn.map_info.zones:
             if zone.pos is None or zone.neutral_type not in RESOURCE_ZONE_TYPES or state.market.closed(zone.neutral_type, turn.day_index):
+                continue
+            if config.local_mining_only and frame.normalize(zone.pos).x > (turn.map_info.width-1)//2:
                 continue
             goals = interaction_cells(grid, zone.pos)
             travel = min((distances.get(p, 10000) for p in goals), default=10000)
@@ -235,12 +243,24 @@ class EconomyManager:
             if can_wait and state.market.will_rise(zone.neutral_type,turn.day_index):
                 price *= config.market_forecast_weight
             batch = max(1, min(config.mining_batch_size, worker.backpack_capacity-len(worker.backpack)))
-            rate = price * batch / (travel + batch + sell_travel + 1)
+            return_travel = min((home_map.get(p,10000) for p in goals), default=10000)
+            if turn.is_day and travel+1+return_travel+config.recall_safety_buffer >= turn.rounds_until_night:
+                continue
+            # The trip ends at a safe defensive position, not at a remote vendor.
+            rate = price * batch / (travel + batch + sell_travel + vendor_home + 1)
+            rate /= 1 + return_travel / max(config.mining_home_radius, 1)
             if zone.pos in {p for actor,p in self.mines.items() if actor != worker.unit_id}:
                 rate *= 0.8
             ranked.append((rate, zone, goals))
         if not ranked:
-            self.activity[worker.unit_id] = "no_reachable_mine"
+            if count and vendor_distance+vendor_home+config.recall_safety_buffer+1 < turn.rounds_until_night:
+                self.selling.add(worker.unit_id)
+                self.activity[worker.unit_id] = "sell_remaining"
+                if vendor_distance == 0:
+                    name = max(inventory, key=lambda n: prices.get(n,0)*inventory[n])
+                    return EconomyPlan(action=Action(worker.unit_id,ActionType.SELL,name=name,quantity=inventory[name]))
+                return EconomyPlan(move=MoveIntent(worker.unit_id,vendor_goals,35))
+            self.activity[worker.unit_id] = "no_safe_local_mine"
             return EconomyPlan()
         best = max(ranked, key=lambda item: (item[0], -item[1].pos.x, -item[1].pos.y))
         previous = next((item for item in ranked if item[1].pos == self.mines.get(worker.unit_id)), None)

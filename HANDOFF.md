@@ -93,6 +93,93 @@ empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
 
+### 2026-09-16 - v0.5 local economy, individual recall and task command compatibility
+
+Evidence and scope:
+
+- Based on published v0.4 commit `f9f9161c861729a6d33785b62c010eb04410eca7`
+  on `codex/v0`. The user requested this v0.5 update and GitHub publication.
+  No platform submission or match was launched here.
+- Two returned v0.4 runs have 354/365 consecutive records, ending at score 107/112
+  with base health 30/45. The base is still present: neither destruction nor final
+  score is confirmed. Three rear weapons exist by state rounds 14/13; third-night
+  telemetry contains no unstaffed weapon. Layout alone did not fix performance.
+- First-night walls are only 4/8, task income is zero, and no weapon/base upgrades
+  occur. Reference runs had 16/18 walls, four tasks for 320 gold and a level-two
+  rocket before the first night. The operating gap is still substantial.
+- Own-side ore is visible while the worker travels to opponent-side copper.
+  Mine value omitted home-return cost. One remote worker triggered team-wide recall,
+  stopping nearby wall work. A sixteen-stone opening batch also delayed construction
+  when the first finite mine depleted.
+- A worker accepted a procurement order after night clearance, but daytime engineer
+  scheduling skipped delivery. Carrier ownership blocked other couriers until expiry;
+  repairs stayed in inventory while the task-exhausted pioneer waited at home.
+- Task telemetry confirms repeated rejections/timeouts but omits raw commands. The
+  reference workflow uses local cd and multiline solvers, both rejected by v0.4.
+  This reproduced compatibility gap is not a proven explanation for every failed task.
+  Original logs, source hashes and detailed comparison remain in ignored local analysis.
+
+Changes:
+
+1. Default mining stays in the normalized home half. Rank complete collection/sale/
+   return trips, penalize long returns, and retain batching and live prices. Partial
+   inventory can be sold when no safe local mine remains. No location is copied from
+   a match. Nearest rear construction begins first; first stone batches are ten.
+2. Recall is computed and latched per role. Nearby workers keep working while distant
+   roles return. Static route time includes a separate traffic allowance; unassigned
+   roles still return toward the base. Dynamic humans cannot erase all controller
+   approach candidates, and empty goals cannot raise an exception.
+3. Resume carried procurement orders before daytime engineer work. Allow that worker
+   to deliver/use items and recover interrupted trips instead of stranding goods.
+4. Reserve early discretionary money for the first level-two rocket. Optional wall
+   purchases wait, critical maintenance remains available, and the first rocket can
+   use the cash reserve after mandatory construction. Cash-out targets use shop prices.
+5. Accept local cd and multiline heredoc/quoted Python commands. Transport multiline
+   scripts as one encoded command with bounded process-group lifetime and output.
+   Generic procedures, dynamic checker answers, five command steps and recovery remain.
+   Script success alone is not a checked answer. Missing submit feedback is no longer
+   counted as success. Rejection and sandbox categories contain no command/output text.
+6. Log mine changes within each day, selected mines, recalled roles, engineer/carrier,
+   task failure categories and planner exception counts. Clear stale activity labels.
+   The summary decoder exposes category/activity turn counts, not sensitive contents.
+7. Synthetic replay now fails on strategy exceptions as well as invalid responses,
+   failed actions and validator drops. Development exposed an empty-goal recall exception
+   which previous replay assertions missed despite producing protocol-safe fallbacks;
+   it was fixed before packaging, and a fault-injection test verifies this new check.
+
+Verification and limits:
+
+- 145 unittest cases pass under Python 3.14.6, including both 1,300-turn synthetic
+  sides with zero planner exceptions, rejected actions, failed actions or invalid
+  responses. This is regression evidence, not a match score or win rate.
+- Independent finite-mine opening fixtures have three operators before first night,
+  10/13 walls without prescribed task income, and no illegal construction. The income
+  fixtures prescribe four successful tasks and show upgrade delivery; they do not
+  measure real LLM performance and still fall below reference wall counts.
+- Added synthetic incident checks for both-side local mining, independent recall,
+  engineer repair delivery, first-rocket funding with emergency overrides, command
+  acceptance, actual encoded multiline execution and dynamic result submission,
+  mine-change telemetry and missing task feedback.
+- Source startup via run.sh and clean archive startup both pass malformed JSON,
+  non-object JSON and eight-turn independently restricted HTTP construction checks.
+- All 23 runtime modules and the sandbox program parse as Python 3.11; exact 3.11.10
+  execution remains unavailable locally. The archive has exactly CoreGeek/main3.py
+  plus 23 solution modules whose extracted bytes match reviewed source.
+- Candidate: `submissions/v0/submission-v0.5.tar.gz`.
+  SHA-256: `862c563c472e3c72a054ce8c06b00fc2c43a4cdc45f6f7719543599ebab107e4`.
+  Earlier artifacts remain unchanged and SHA256SUMS includes v0.5.
+
+Next platform checks:
+
+- Local versus remote mining, mine depletion/respawn, sale quantities and actual gold.
+- Per-role recall and three staffed weapons at 70/71; first-wall timing and wall count.
+- Task command categories, first actual successful task and task gold; then timing of
+  the first rocket upgrade. Raw task text, tokens and full sensitive logs are unnecessary.
+- Cross-day carried repair delivery, third-night base health and sustained upgrades.
+- Real score improvement, route safety and survival are unverified until new matches;
+  the new mine boundary and return weights may trade some high-price income for safety.
+
+
 ### 2026-09-16 - v0.4 operating-cycle candidate
 
 Status and evidence:

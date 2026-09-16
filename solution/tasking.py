@@ -86,6 +86,23 @@ def safe_calculation_command(command: object) -> str:
     return f'python3 -c "{expression}"'
 
 
+_TASK_PROGRAMS = frozenset({
+    "python3", "python", "bash", "sh", "cd", "find", "grep", "sed", "cat",
+    "head", "tail", "wc", "ls", "pwd", "cp", "mv", "mkdir", "chmod",
+    "make", "gcc", "g++", "go", "javac", "java", "cargo", "rustc", "curl",
+})
+
+
+def _command_head(command: str) -> str:
+    first_line = next(line for line in command.splitlines() if line.strip() and not line.lstrip().startswith("#"))
+    try:
+        # Quoted Python -c programs can span lines. Heredoc bodies may contain
+        # unmatched shell quotes, so fall back to the shell command's first line.
+        return shlex.split(command.lstrip() if not command.lstrip().startswith("#") else first_line, posix=True)[0]
+    except ValueError:
+        return shlex.split(first_line, posix=True)[0]
+
+
 def safe_task_command(command: object) -> str:
     """Guard bounded LLM commands sent to the isolated task sandbox."""
 
@@ -93,7 +110,7 @@ def safe_task_command(command: object) -> str:
         not isinstance(command, str)
         or not command.strip()
         or len(command) > 24000
-        or any(character in command for character in ("\x00", "\n", "\r", "`"))
+        or any(character in command for character in ("\x00", "\r", "`"))
     ):
         return ""
     lowered = command.casefold()
@@ -113,15 +130,44 @@ def safe_task_command(command: object) -> str:
     if "curl " in lowered and not urls:
         return ""
     try:
-        first = shlex.split(command, posix=True)[0]
-    except (ValueError, IndexError):
+        first = _command_head(command)
+    except (ValueError, IndexError, StopIteration):
         return ""
-    allowed_first = {
-        "python3", "python", "bash", "sh", "find", "grep", "sed", "cat",
-        "head", "tail", "wc", "ls", "pwd", "cp", "mv", "mkdir", "chmod",
-        "make", "gcc", "g++", "go", "javac", "java", "cargo", "rustc", "curl",
-    }
-    return command.strip() if first in allowed_first else ""
+    if first not in _TASK_PROGRAMS:
+        return ""
+    if "\n" in command:
+        return procedure_command({"kind":"script", "script":command})
+    return command.strip()
+
+
+def command_rejection(command: object) -> str:
+    if not isinstance(command, str): return "command_shape"
+    if len(command)>24000: return "command_length"
+    if any(c in command for c in ("\x00", "\r", "`")): return "control_or_backtick"
+    if re.search(r"https?://(?!localhost(?=[:/])|127\.0\.0\.1(?=[:/]))",command): return "external_url"
+    try: first=_command_head(command)
+    except (ValueError,IndexError,StopIteration): return "shell_quoting"
+    if first not in _TASK_PROGRAMS:
+        return "unsupported_program"
+    return "blocked_operation"
+
+
+def sandbox_category(result: SandboxResult) -> str:
+    for marker,label in (("SyntaxError","syntax_error"),("FileNotFoundError","missing_file"),
+                         ("No such file","missing_file"),("ModuleNotFoundError","missing_module"),
+                         ("Permission denied","permission"),("command not found","command_not_found"),
+                         ("AttributeError","runtime_attribute")):
+        if marker in result.output: return label
+    parsed=parse_structured_llm(result.output)
+    envelope=parsed.get("procedure_result") if parsed else None
+    if isinstance(envelope,dict):
+        status=envelope.get("status")
+        allowed={"check_failed","check_timeout","check_truncated","check_not_structured","incomplete_pages",
+                 "repeated_page","script_ok","ValueError","FileNotFoundError","KeyError","TypeError","TimeoutError"}
+        if isinstance(status,str) and status in allowed: return "procedure_"+status
+        if envelope.get("checked") is True: return "checked"
+        if "documents" in envelope: return "documents"
+    return result.status
 
 
 def task_probe_command(task_text: str) -> str:
@@ -169,6 +215,9 @@ class TaskManager:
     completed: int = 0
     failed: int = 0
     task_cooldowns: dict[Pos, int] = field(default_factory=dict)
+    command_exit: int | None = None
+    command_category: str = "none"
+    reject_reason: str = "none"
 
     def reset(self, generation: int) -> None:
         self.phase = TaskPhase.IDLE
@@ -194,11 +243,13 @@ class TaskManager:
         self.active_seen = False
         self.completed = self.failed = 0
         self.task_cooldowns.clear()
+        self.command_exit = None
+        self.command_category = self.reject_reason = "none"
 
     def _finish(self, turn: Turn) -> None:
         pioneer = next((r for r in turn.controllable if r.role_type == "pioneer"),None)
         success = (self.phase == TaskPhase.WAITING_RESULT and not turn.errors and self.submit_attempts > 0
-                   and pioneer is not None and turn.last_action_results.get(pioneer.unit_id) is not False)
+                   and pioneer is not None and turn.last_action_results.get(pioneer.unit_id) is True)
         self.completed += int(success)
         self.failed += int(not success)
         if self.task_position is not None:
@@ -211,6 +262,8 @@ class TaskManager:
         self.pending_procedure = self.active_seen = False
         self.feedback_hint = ""
         self.diagnostic = "completed" if success else "ended_without_success"
+        self.command_exit = None
+        self.command_category = self.reject_reason = "none"
 
     def plan(
         self,
@@ -264,6 +317,8 @@ class TaskManager:
                 self.feedback_hint = ""
                 self.pending_procedure = False
                 self.last_progress_round = turn.round_no
+                self.command_exit = None
+                self.command_category = self.reject_reason = "none"
             self.task_signature = signature
             if self.accepted_round is None:
                 self.accepted_round = turn.round_no
@@ -344,6 +399,8 @@ class TaskManager:
         if command_signature and (fresh_command or command_signature != self.last_command_signature):
             self.last_command_signature = command_signature
             result = parse_sandbox_result(turn.last_command_result, config.task_command_output_limit)
+            self.command_exit = result.exit_code
+            self.command_category = sandbox_category(result)
             self.command_output = (
                 f"status={result.status}; exitCode={result.exit_code}; truncated={result.truncated}\n"
                 + result.output.strip()
@@ -372,16 +429,19 @@ class TaskManager:
             parsed = parse_structured_llm(turn.llm_response)
             if parsed is not None:
                 procedure = parsed.get("procedure")
-                command = procedure_command(procedure) if isinstance(procedure, dict) else safe_task_command(parsed.get("command"))
+                requested = parsed.get("command", parsed.get("script"))
+                command = procedure_command(procedure) if isinstance(procedure, dict) else safe_task_command(requested)
                 answer = parsed.get("answer")
                 if command and self.command_steps < config.task_command_step_limit:
+                    self.reject_reason = "none"
                     self.pending_command = command
-                    self.pending_procedure = isinstance(procedure, dict)
+                    self.pending_procedure = isinstance(procedure, dict) or (isinstance(requested,str) and "\n" in requested)
                     self.pending_answer = ""
                     self.diagnostic = "procedure_ready" if self.pending_procedure else "command_ready"
                     self.last_progress_round = turn.round_no
-                elif parsed.get("command") or procedure:
-                    self.feedback_hint = "Command rejected or step budget exhausted; use a supported bounded command or return an evidence-backed final answer."
+                elif requested or procedure:
+                    self.reject_reason = "step_budget" if command else "procedure_shape" if procedure else command_rejection(requested)
+                    self.feedback_hint = "Command rejected: " + self.reject_reason + ". Use command/script with a local cd, Python or shell solver; no external network or destructive cleanup. Keep valid JSON string escaping."
                     self.diagnostic = "command_rejected_or_budget"
                 elif isinstance(answer, (dict, list)) and answer:
                     self.pending_answer = json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
@@ -459,7 +519,7 @@ class TaskManager:
             return AdvancedPlan(
                 prompt=(
                     "Solve the active task using the supplied evidence. Return strict JSON only: "
-                    '{"answer":"final answer"} or {"command":"one-line sandbox command"} or {"procedure":{...}}. '
+                    '{"answer":"final answer"} or {"command":"sandbox shell command"} or {"script":"multiline shell/Python heredoc script"} or {"procedure":{...}}. '
                     "Use either a final answer or one necessary command, never prose outside JSON. "
                     "Preserve the required answer keys and types: answer may be a JSON object. "
                     "Read referenced documentation, execute the required local repair or loopback API queries, "
@@ -471,6 +531,8 @@ class TaskManager:
                     "Paths are relative to the task root. Use actual documented field names, types and authentication. "
                     "For code repair inspect the actual source, apply a unique replacement, run the provided checker and select its answer object. "
                     "For API tasks fetch ALL pages; do not infer totals from one page. Do not embed a guessed answer. "
+                    "Prefer one complete script that performs the calculation/repair and validation in the same execution, then prints the required answer. "
+                    "Local cd and multiline scripts are supported. Do not return another inspection command when the needed source is already in the evidence. "
                     f"Task elapsed rounds: {turn.round_no-(self.accepted_round or turn.round_no)}; timeout: {self.timeout_rounds}. "
                     f"Remaining command steps: {config.task_command_step_limit-self.command_steps}. "
                     f"Feedback: {self.feedback_hint}. "

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 from solution.actions import Action, ActionType, Decision
 from solution.geometry import Pos
@@ -45,6 +46,12 @@ class FeedbackTests(unittest.TestCase):
 
 
 class SyntheticReplayTests(unittest.TestCase):
+    def test_strategy_fallback_is_counted_as_a_replay_failure(self):
+        with patch('solution.planner.CompetitionPlanner._day',side_effect=ValueError('synthetic')):
+            with patch('solution.planner.LOGGER.warning'):
+                stats=run_synthetic_match(2)
+        self.assertEqual(stats.planner_failures,2)
+
     def test_full_ten_day_replay_has_no_protocol_failures(self) -> None:
         for side in ("challenger", "defender"):
             stats = run_synthetic_match(1300, side)
@@ -52,6 +59,7 @@ class SyntheticReplayTests(unittest.TestCase):
             self.assertEqual(stats.invalid_responses, 0)
             self.assertEqual(stats.dropped_actions, 0)
             self.assertEqual(stats.failed_actions, 0)
+            self.assertEqual(stats.planner_failures, 0)
             self.assertGreater(stats.active_rounds, 0)
             self.assertEqual(stats.final_weapon_count, 3)
             self.assertGreaterEqual(stats.minimum_gold, 0)

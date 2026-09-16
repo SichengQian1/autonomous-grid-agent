@@ -50,6 +50,7 @@ class CompetitionPlanner:
     logistics: LogisticsManager = field(default_factory=LogisticsManager)
     engineer_id: int | None = None
     stone_batch_goal: int = 0
+    failure_count: int = 0
 
     def plan(
         self,
@@ -70,11 +71,12 @@ class CompetitionPlanner:
             self.logistics = LogisticsManager()
             self.engineer_id = None
             self.stone_batch_goal = 0
+            self.failure_count = 0
             self.news_prompt_source = self.interpreted_news = ""
         if self.treasure_prompt_pending and turn.llm_response:
             parsed = parse_structured_llm(turn.llm_response)
             background = (parsed is not None and any(k in parsed for k in ("market", "treasure"))
-                          and not any(k in parsed for k in ("answer", "command", "procedure")))
+                          and not any(k in parsed for k in ("answer", "command", "script", "procedure")))
             if background:
                 self.treasure.ingest_llm(turn.llm_response, {max(r-1,0)//ROUNDS_PER_DAY+1 for r,_ in state.folk_legend_history})
                 state.market.ingest_interpretation(parsed.get("market"),self.news_prompt_source,self.news_prompt_day)
@@ -83,6 +85,7 @@ class CompetitionPlanner:
             self.treasure_prompt_pending = False
         elif self.treasure_prompt_pending and turn.round_no-self.treasure_prompt_round > config.task_response_wait:
             self.treasure_prompt_pending = False
+        self.economy.activity.clear()
         self.opponent.update(turn, state.generation)
         self.treasure.apply_result(turn.last_summon_treasure_result)
         if deadline_reached():
@@ -102,6 +105,7 @@ class CompetitionPlanner:
             else:
                 decision = self._night(turn, state, llm_budget, config, mode, threats, budget)
         except Exception as error:
+            self.failure_count += 1
             LOGGER.warning(
                 "primary planner failed (%s); falling back to basic defense",
                 type(error).__name__,
@@ -127,41 +131,30 @@ class CompetitionPlanner:
         workers = sorted(turn.team_our.units_of_type(ROLE_WORKER), key=lambda unit: unit.unit_id)
         workers = [worker for worker in workers if worker.alive and worker.pos is not None]
         if workers and self.engineer_id not in {w.unit_id for w in workers}:
-            self.engineer_id = min(workers, key=lambda w: (w.pos.distance_to(layout.weapon_sites[0]) if layout.weapon_sites else 0,w.unit_id)).unit_id
+            self.engineer_id = min(workers, key=lambda w: (min((w.pos.distance_to(p) for p in layout.weapon_sites[:3]), default=0),w.unit_id)).unit_id
         pioneer = next(
             (unit for unit in turn.team_our.units_of_type(ROLE_PIONEER) if unit.alive),
             None,
         )
 
-        recall = state.recall_day == turn.day_index or self._recall_needed(turn, layout, config)
-        if recall:
-            state.recall_day = turn.day_index
-        if recall:
-            recall_intents = self._controller_intents(turn, priority=120)
-            assigned_recall = {intent.actor_id for intent in recall_intents}
-            station = turn.team_our.station()
-            if station is not None:
-                station_cells = station.footprint()
-                for role in turn.controllable:
-                    if role.unit_id in assigned_recall or role.pos is None:
-                        continue
-                    grid = OccupancyGrid.from_turn(
-                        turn,
-                        ignore_unit_ids=(role.unit_id,),
-                    )
-                    goals = tuple(
-                        goal
-                        for cell in station_cells
-                        for goal in interaction_cells(grid, cell)
-                    )
-                    recall_intents.append(
-                        MoveIntent(role.unit_id, goals, priority=110)
-                    )
-            intents.extend(recall_intents)
-            used.update(intent.actor_id for intent in recall_intents)
-        else:
+        advanced = AdvancedPlan()
+        treasure_prompt = ""
+        recall_intents = self._individual_recall(turn, state, config)
+        intents.extend(recall_intents)
+        used.update(i.actor_id for i in recall_intents)
+        if len(used) < len(turn.controllable):
+            # Deliver carried goods before assigning the engineer another mining trip.
+            for worker in workers:
+                if worker.unit_id in used:
+                    continue
+                if self.logistics.carrier_id == worker.unit_id or any(
+                    item == "WallFixer" or "UpgradeVoucher" in item for item in worker.backpack
+                ):
+                    delivery = self.logistics.plan(turn, worker, budget, config)
+                    self._merge_advanced(delivery, actions, intents, used)
             objectives = weapon_build_objectives(turn, layout, state, config)
-            builders = [worker for worker in workers if worker.unit_id == self.engineer_id]
+            builders = [worker for worker in workers if worker.unit_id == self.engineer_id and worker.unit_id not in used]
+            objectives = sorted(objectives, key=lambda o: min((w.pos.distance_to(o.site) for w in builders), default=0))
             for objective in objectives:
                 if not builders:
                     break
@@ -207,8 +200,6 @@ class CompetitionPlanner:
                 wall_target = min(len(layout.wall_sites), config.max_wall_count)
                 stones = worker.backpack.count("stone")
                 desired_batch = config.stone_batch_size
-                if turn.day_index == 1:
-                    desired_batch = max(desired_batch, config.first_night_wall_target-wall_count)
                 batch = min(desired_batch, max(0, wall_target - wall_count), worker.backpack_capacity)
                 if stones == 0 and wall_count < wall_target:
                     self.stone_batch_goal = batch
@@ -219,6 +210,7 @@ class CompetitionPlanner:
                     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
                     distances = distance_field(grid, (worker.pos,))
                     stone_zones = [z for z in turn.map_info.zones if z.neutral_type == "stone" and z.pos is not None
+                                   and (not config.local_mining_only or layout.frame.normalize(z.pos).x <= (turn.map_info.width-1)//2)
                                    and not state.market.closed("stone", turn.day_index)]
                     def mine_distance(zone):
                         return min((distances.get(p, 10000) for p in interaction_cells(grid, zone.pos)), default=10000)
@@ -325,14 +317,13 @@ class CompetitionPlanner:
 
             for worker in workers:
                 if worker.unit_id not in used:
-                    if worker.unit_id != self.engineer_id or len(workers) == 1:
-                        logistics = self.logistics.plan(turn, worker, budget, config)
-                        if logistics.action is not None:
-                            actions.append(logistics.action)
-                            used.add(worker.unit_id)
-                        elif logistics.move is not None:
-                            intents.append(logistics.move)
-                            used.add(worker.unit_id)
+                    logistics = self.logistics.plan(turn, worker, budget, config)
+                    if logistics.action is not None:
+                        actions.append(logistics.action)
+                        used.add(worker.unit_id)
+                    elif logistics.move is not None:
+                        intents.append(logistics.move)
+                        used.add(worker.unit_id)
                     if worker.unit_id in used:
                         continue
                     self._plan_worker_economy(turn, worker, actions, intents, used, state, config, budget)
@@ -343,8 +334,8 @@ class CompetitionPlanner:
                 intents.append(MoveIntent(role.unit_id,(role.pos,),0))
         move_actions = schedule_moves(turn, intents, occupied_destinations=build_cells)
         actions.extend(action for action in move_actions if action.actor_id not in {item.actor_id for item in actions})
-        prompt = (advanced.prompt or treasure_prompt) if not recall else ""
-        execute = advanced.execute_command if not recall else ""
+        prompt = advanced.prompt or treasure_prompt
+        execute = advanced.execute_command
         return Decision(tuple(actions), prompt=prompt, execute_command=execute)
 
     def _night(
@@ -586,9 +577,35 @@ class CompetitionPlanner:
             if assignment.controller.pos.distance_to(assignment.weapon.pos) <= 1:
                 result.append(MoveIntent(assignment.controller.unit_id, (assignment.controller.pos,), priority))
                 continue
-            grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(assignment.controller.unit_id,))
+            grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
             goals = interaction_cells(grid, assignment.weapon.pos)
             result.append(MoveIntent(assignment.controller.unit_id, goals, priority))
+        return result
+
+    @staticmethod
+    def _individual_recall(turn: Turn, state: WorldState, config: StrategyConfig) -> list[MoveIntent]:
+        state.recalled_roles = {actor: day for actor, day in state.recalled_roles.items() if day == turn.day_index}
+        intents = CompetitionPlanner._controller_intents(turn, 120)
+        grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+        assigned = {intent.actor_id for intent in intents}
+        station = turn.team_our.station()
+        if station is not None:
+            home = tuple(dict.fromkeys(p for cell in station.footprint() for p in interaction_cells(grid,cell)))
+            intents.extend(MoveIntent(role.unit_id,home,110) for role in turn.controllable
+                           if role.unit_id not in assigned and role.pos is not None)
+        result = []
+        for intent in intents:
+            role = turn.team_our.unit(intent.actor_id)
+            path = shortest_path(grid, role.pos, intent.goals)
+            distance = len(path)-1 if path else turn.rounds_until_night
+            if not intent.goals:
+                intent = replace(intent, goals=(role.pos,))
+            # Static shortest paths omit queued humans and walls built en route.
+            # Reserve a separate traffic allowance without recalling other roles.
+            if (state.recall_day == turn.day_index or intent.actor_id in state.recalled_roles
+                    or distance+config.recall_safety_buffer+config.recall_traffic_buffer >= turn.rounds_until_night):
+                state.recalled_roles[intent.actor_id] = turn.day_index
+                result.append(intent)
         return result
 
     @staticmethod

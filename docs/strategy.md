@@ -24,7 +24,7 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.4 primary composition: two rocket launchers and one railgun.
+- v0.5 primary composition: two rocket launchers and one railgun.
 - Keep two railguns and one rocket launcher as the first comparison.
 - Place all three preferred weapons on the rear edge of the legal weapon ring,
   with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
@@ -33,8 +33,8 @@ Use a lexicographic decision hierarchy:
   cells away. These are distinct rings; moving a weapon farther behind the base
   cannot override its permitted building area.
 - Assign one engineer to three weapons and batches of stone-funded walls. Start the
-  other worker on income immediately. The initial wall target is sixteen, subject
-  to actual travel and safe recall; this is a target, not a proven platform result.
+  other worker on income immediately. Collect an initial ten-stone batch and build before starting another batch;
+  do not delay all walls while chasing a depleted mine for a sixteen-stone batch.
   Every wall must preserve structural access to control positions and living roles.
 - Do not dynamically remove and rebuild the opening in V1. Reconsider only if
   platform evidence shows flanking or a changed spawn pattern.
@@ -50,7 +50,7 @@ Use a lexicographic decision hierarchy:
 - Ordinary projectile paths may interact with friendly walls differently from rockets.
 - A fixed rear opening may retain safe role access without creating a robot route.
 - `USER_OBSERVED`: upgrading a base, wall, or weapon restores it to full health.
-  v0.4 scores both restored health and weapon development, prioritizes critical
+  v0.5 scores both restored health and weapon development, prioritizes critical
   maintenance, and favors level-two weapons before optional level-three upgrades.
 - Summon orders are profitable only when the opponent is near a defensive threshold.
 
@@ -78,7 +78,7 @@ telemetry promotes them to a runtime observation.
 - Accumulate and verify treasure constraints.
 - Estimate opponent pressure from globally visible information.
 
-## v0.4 Safety Gates
+## v0.5 Safety Gates
 
 - Boss-order purchases and use are disabled.
 - Cross-map attacks are disabled even when `targetTeam` is present.
@@ -90,8 +90,9 @@ telemetry promotes them to a runtime observation.
   remaining adjacent to its weapon; a firing operator cannot be borrowed.
 - A task's pioneer stays reserved during LLM/command waits; optional logistics
   cannot move it off the active task point.
-- Pre-night recall stays active for the rest of that day once triggered.
-  Its deadline includes obstacle-aware return paths, not just straight-line distance.
+- Recall latches separately for each role until the next day. A remote role cannot
+  freeze a nearby builder. Return deadlines include obstacle-aware paths and
+  a separate traffic allowance for queued humans and construction detours.
 
 ### Endgame
 
@@ -106,13 +107,20 @@ telemetry promotes them to a runtime observation.
   acceptance. Task completion/expiry clears stale output and answers.
 - Generic bounded sandbox procedures inspect files, apply unique local edits and
   run a checker, or fetch all pages of a loopback API and compute declared fields.
-  Actual checked output may be submitted directly. No answer cache crosses tasks.
+  Actual checked output may be submitted directly. Local cd commands and multiline
+  solver scripts are supported with bounded execution/output; script success alone
+  does not mark an answer checked. No answer cache crosses tasks.
 - Economy workers retain a mine while its return per travel/collection/sale turn
-  remains competitive. Default batches are ten items, with earlier sale at six
+  remains competitive. Default mining stays within the normalized home half and
+  prices the return trip as well as sale travel; inaccessible or distant mines
+  cannot displace a safe local option solely through a high price. Default batches are ten items, with earlier sale at six
   when working capital or recall requires it. Depletion causes replanning.
 - A carrier commits to a basket of up to three destinations, observes inventory
   after purchase, and delivers before reprioritizing. Expired trips recover.
-  Emergency money is available for critical buildings, not optional upgrades.
+  Carried orders survive night/day transitions, including orders held by the engineer.
+  Until one rocket reaches level two, optional wall spending waits; critical repairs
+  still take priority. First-rocket funding can use the emergency reserve after
+  construction costs are reserved. Runtime shop prices set the cash-out target.
 - Live vendor prices govern cash decisions. Only explicit official news or an
   interpretation tied to an actual source span creates a future window. Holding
   stock requires developed defense and working capital; dates are never fixed

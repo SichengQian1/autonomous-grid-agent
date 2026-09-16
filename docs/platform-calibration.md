@@ -62,8 +62,17 @@ loss in that night. Successful construction is not evidence of competitive stren
 Side/rear robots were observed, so a one-direction-only threat assumption is invalid.
 The two fixed rear gates remain an experiment requiring route and exposure checks.
 
-The v0.4 candidate changes layout/traffic, task procedures, worker economy,
-procurement and news/treasure planning together, with separate regression groups.
+Two returned v0.4 runs confirm three rear weapons and third-night staffing, but
+only 4/8 first-night walls, zero completed task income, and no weapon/base upgrades.
+Their final supplied records show scores 107/112 and base health 30/45; the base
+is still present, so these are not confirmed final scores or destruction turns.
+Visible local ore was ignored in favor of remote copper. Global recall froze
+nearby work, and cross-day carrier ownership stranded purchased repairs.
+
+The v0.5 candidate addresses these scheduling and funding failures, and permits
+local cd/multiline task solvers with bounded execution. The private v0.4 telemetry
+does not contain command text, so individual task failures cannot all be attributed
+to command filtering. New telemetry emits categories without command contents.
 Its task-income integration supplies prescribed synthetic LLM replies: it tests
 cash-to-upgrade scheduling, not real solving ability. Its combat harness is not an
 engine model and cannot establish survival or score.
@@ -73,13 +82,14 @@ For the next platform run, retain artifact hash and collect bounded evidence for
 1. third weapon completion, each controller's position and wall count at turns 70/71;
 2. task accepts, checked-command/result/submission sequence, success, errors and elapsed turns;
 3. first rocket upgrade and second-day weapon/base levels;
-4. sale batch quantities, actual gold changes, purchase-to-use delays and stranded items;
+4. local mine selection, mine depletion/respawn, per-role recall, sale batches,
+   actual gold changes, purchase-to-use delays and stranded items;
 5. third-night unstaffed weapons, cooldown recovery and side/rear intrusions;
 6. per-night base/critical-wall health, repair/upgrade uses and replacement construction;
 7. live prices versus news-derived windows and treasure result codes without raw clues/answers.
 
 Real robot routing, settlement, rear-gate safety, projectile interactions,
 night activity, LLM/task judging, treasure interpretation, and score/win rate
-remain unverified for v0.4. Run both map sides and more than one match before
+remain unverified for v0.5. Run both map sides and more than one match before
 promoting the candidate to a stronger-strategy claim. Exact Python 3.11.10 runtime
 verification is also required.

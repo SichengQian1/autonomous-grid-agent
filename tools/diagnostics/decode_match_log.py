@@ -40,6 +40,7 @@ def summarize_events(events):
     builds = []
     last = {}
     boundaries, weapon_activity, commerce, task_reasons = [], Counter(), Counter(), Counter()
+    command_categories, rejection_reasons, economy_activity = Counter(), Counter(), Counter()
     for e in events:
         if e.get("event") != "turn":
             continue
@@ -57,6 +58,9 @@ def summarize_events(events):
             boundaries.append({"round":r,"base":e.get("station"),"walls":walls,"gold":e.get("gold"),
                                "units":[[u[1],u[2],u[3],u[4],u[7]] for u in e.get("roles",[]) if len(u)>=8 and u[1]!='wall']})
         diagnostics=e.get("diagnostics",{})
+        command_categories.update([diagnostics["taskCommandCategory"]] if diagnostics.get("taskCommandCategory") not in (None,"none") else [])
+        rejection_reasons.update([diagnostics["taskRejectReason"]] if diagnostics.get("taskRejectReason") not in (None,"none") else [])
+        economy_activity.update(diagnostics.get("economy",{}).values())
         task_reasons.update([diagnostics["taskReason"]] if diagnostics.get("taskReason") else [])
         for item in diagnostics.get("weapons",[]):
             if isinstance(item,list) and len(item)==3:
@@ -85,7 +89,9 @@ def summarize_events(events):
             "firstNight":first_night,"last":last,"actions":dict(actions),
             "failedActions":dict(failures),"errorCodes":dict(errors),"buildResults":builds,
             "dayNightBoundaries":boundaries,"weaponActivity":dict(weapon_activity),
-            "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons)}
+            "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons),
+            "taskCommandCategoryTurns":dict(command_categories),"taskRejectReasonTurns":dict(rejection_reasons),
+            "economyActivityTurns":dict(economy_activity)}
 
 
 def main() -> None:

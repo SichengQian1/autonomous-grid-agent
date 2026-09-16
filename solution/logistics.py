@@ -102,6 +102,11 @@ class LogisticsManager:
         def distance(target):
             return min((distances.get(p,10000) for p in goals(target)),default=10000)
         options = _maintenance_options(turn)
+        first_rocket = any(u.role_type == ROLE_ROCKET and u.level >= 2 and u.alive for u in turn.team_our.roles)
+        if not first_rocket:
+            # Fund the first power increase before buying optional small items.
+            options = [o for o in options if o[0] in role.backpack or critically_damaged(o[1])
+                       or (o[1].role_type == ROLE_ROCKET and o[1].level == 1)]
         first_levels = any(u.is_weapon and u.level == 1 for u in turn.team_our.roles)
         def value(option):
             name,target,score = option
@@ -130,7 +135,8 @@ class LogisticsManager:
                         owned[name] -= 1
                         continue
                     price = prices.get(name,0)
-                    allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if critically_damaged(target) else budget.offensive
+                    urgent = critically_damaged(target) or (not first_rocket and target.role_type == ROLE_ROCKET)
+                    allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if urgent else budget.offensive
                     if 0 < price <= allowance-committed and len(self.orders) < 3:
                         self.orders.append(Delivery(name,target.unit_id,target.level))
                         committed += price
@@ -146,8 +152,9 @@ class LogisticsManager:
         # Deliver immediately when adjacent, or when the remaining basket is no longer affordable.
         prices = {i.name:i.price for i in turn.weapon_shop}
         missing_cost = sum(prices.get(name,100000)*n for name,n in needed.items())
-        # Emergency reserves can fund a critical repair, never an optional extra.
-        emergency_order = any((target := turn.team_our.unit(o.target_id)) is not None and critically_damaged(target)
+        # Reserves can fund critical repairs and the first rocket power increase.
+        emergency_order = any((target := turn.team_our.unit(o.target_id)) is not None and (critically_damaged(target)
+                              or (not first_rocket and target.role_type == ROLE_ROCKET))
                               for o in self.orders)
         spending = max(budget.offensive, turn.team_our.gold-budget.mandatory) if emergency_order else budget.offensive
         target = turn.team_our.unit(delivery.target_id) if delivery else None
@@ -163,7 +170,7 @@ class LogisticsManager:
             if shop_distance == 0:
                 name = next(iter(needed))
                 quantity = needed[name]
-                if name == "WallFixer" and prices[name] * (quantity+1) <= budget.offensive:
+                if first_rocket and name == "WallFixer" and prices[name] * (quantity+1) <= budget.offensive:
                     quantity += 1  # Carry one spare for the next damage event.
                 quantity = min(quantity, max(0,role.backpack_capacity-len(role.backpack)))
                 if quantity:

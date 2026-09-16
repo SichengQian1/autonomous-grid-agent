@@ -52,6 +52,7 @@ class ReplayStats:
     minimum_gold: int = 10**9
     failed_actions: int = 0
     dropped_actions: int = 0
+    planner_failures: int = 0
     final_weapon_count: int = 0
 
 
@@ -274,6 +275,7 @@ def run_synthetic_match(rounds: int = 1300, side: str = "challenger") -> ReplayS
     stats.final_weapon_count = sum(
         1 for role in world.roles if role["roleType"] in {"gatling", "railgun", "rocket"}
     )
+    stats.planner_failures = engine.planner.failure_count
     return stats
 
 
@@ -284,7 +286,7 @@ def main() -> int:
     args = parser.parse_args()
     stats = run_synthetic_match(max(1, min(args.rounds, 1300)), args.side)
     print(json.dumps(stats.__dict__, sort_keys=True))
-    return 0 if stats.invalid_responses == stats.failed_actions == stats.dropped_actions == 0 else 1
+    return 0 if stats.invalid_responses == stats.failed_actions == stats.dropped_actions == stats.planner_failures == 0 else 1
 
 
 if __name__ == "__main__":

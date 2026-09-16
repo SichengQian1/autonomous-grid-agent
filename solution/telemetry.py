@@ -144,7 +144,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.4",
+        "agentVersion": "v0.5",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,
@@ -185,6 +185,7 @@ class Telemetry:
     used_bytes: int = 0
     sequence: int = 0
     generation: int = -1
+    zone_signature: tuple = ()
 
     def emit(self, event: Mapping[str, Any], *, critical: bool = False) -> bool:
         try:
@@ -228,9 +229,13 @@ class Telemetry:
                 event.pop(key,None)
             event["roles"] = [u for u in event["roles"] if u[1] != "wall"]
             event["detail"] = "compact"
-        if turn.round_in_day == 1:
+        zones = tuple(sorted((z.neutral_type, z.pos.x, z.pos.y) for z in turn.map_info.zones if z.pos is not None))
+        if turn.round_in_day == 1 or zones != self.zone_signature:
             event["zones"] = [[z.neutral_type, _pos(z.pos)] for z in turn.map_info.zones][:100]
-        if not self.emit(event, critical=critical) and turn.round_no % 30 == 0:
+        emitted = self.emit(event, critical=critical)
+        if emitted:
+            self.zone_signature = zones
+        if not emitted and turn.round_no % 30 == 0:
             self.emit(
                 {
                     "v": 2,

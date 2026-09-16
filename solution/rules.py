@@ -98,6 +98,7 @@ class StrategyConfig:
     max_weapon_count: int = MAX_WEAPON_COUNT
     max_wall_count: int = MAX_WALL_COUNT
     recall_safety_buffer: int = 4
+    recall_traffic_buffer: int = 3
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
@@ -127,6 +128,8 @@ class StrategyConfig:
     task_expected_rounds: int = 6
     treasure_gold_reserve: int = 125
     market_forecast_weight: float = 1.25
+    local_mining_only: bool = True
+    mining_home_radius: int = 10
 
 
 DEFAULT_CONFIG = StrategyConfig()
