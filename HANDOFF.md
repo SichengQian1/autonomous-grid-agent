@@ -76,6 +76,7 @@ After a change:
 - `solution/state.py`: cross-turn feedback/news state and LLM call budget.
 - `solution/grid.py`: occupied cells and bounded eight-direction pathfinding.
 - `solution/movement.py`: joint next-cell reservation and collision avoidance.
+- `solution/travel.py`: shared work, procurement and defensive-return route budgets.
 - `solution/defense.py`: normalized front/rear geometry and defensive layout.
 - `solution/economy.py`: defense budget, construction, and resource value.
 - `solution/logistics.py`: persistent runtime-shop baskets, delivery and maintenance.
@@ -83,6 +84,7 @@ After a change:
 - `solution/combat.py`: controllers, release levels, and projected target allocation.
 - `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
 - `solution/task_programs.py`: generic bounded sandbox procedures.
+- `solution/task_context.py`: bounded per-task documents, workspace and execution evidence.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
 - `solution/telemetry.py`: bounded sanitized `AGLOG2` records.
@@ -92,6 +94,87 @@ recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. A
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-16 - v0.6 task evidence, operating routes and second-night front walls
+
+Evidence and scope:
+
+- Based on v0.5 commit `6673d27ced1c9cf7944cf8656bdfd64004bb1855` on `codex/v0`.
+  User approved the operating update and requested earlier level-two walls; standing
+  authorization covers GitHub publication. No official match or platform upload.
+- Two returned runs end at rounds 370/371, scores 139/135 and base health 25/40.
+  Both bases remain in the last records; these are not confirmed final scores.
+- Each run accepts six tasks with zero successful task income. Five expire; the last
+  is interrupted after recall. In the reference runs first-day tasks contribute
+  approximately 560/554 points and 480 gold. Non-task scores match at the first two
+  day boundaries (40 and 95), so task operations dominate the early measured gap.
+- One purchased voucher remains unused for 93 rounds. A reproduced future-route
+  reservation suppresses courier movement; recall and critical-only nighttime use
+  then delay the first rocket upgrade. Raw command details are absent: diagnostic
+  categories do not prove the exact failing file or permission for every task.
+- One third-day worker-action trace has 106 moves, 17 collections and no sales; carried
+  resources at one observed point would sell for 99 at current prices. Completing
+  cash-out before recall matters more than nominal collected inventory.
+- Detailed source hashes, comparison and raw logs remain local-only.
+
+Changes:
+
+1. Retain bounded task documents, discovered workspace and recent results. Execute
+   scripts and checks in the discovered directory; missing requested documents are
+   reported rather than silently substituted. Failure blocks unsupported answers;
+   checked procedure results can submit directly. Reset context between tasks.
+2. Share obstacle-aware work/delivery/return budgets and traffic margins across task
+   acceptance, economy, shopping and recall. Planned shopping includes delivery/use,
+   not just arriving at the shop. Task duration remains an estimate.
+3. Reserve only the next two cells of a higher-priority future route for goal avoidance;
+   retain all current-step collision and yield protections. Adjacent owned deliveries
+   can finish during recall when physical return time remains. Idle night operators
+   may use carried upgrades; firing retains priority and operators stay in range.
+4. Rank complete mining/sale/return trips, trim batches to remaining daylight and
+   estimate depletion from successful own collections. Compare continuation against
+   immediate cash-out, including team stock needed for upgrades. Retain own-half
+   mining, current prices and evidence-backed price windows.
+5. Starting on day two, target three level-one front walls for level two. Choose
+   damaged front walls first and value upgrade healing. Preserve the first rocket
+   fund except for critical maintenance. Remaining level-one weapons and urgent base
+   survival continue competing for funds; completion before night is conditional.
+6. Log task workspace readiness, retained-document count and execution-evidence state,
+   plus bounded procedure error categories, without task documents or answers.
+
+Verification:
+
+- Five minimal synthetic incidents failed before the fixes and passed afterward.
+- 157 unittest cases passed under Python 3.14.6, including both 1300-turn synthetic
+  sides with zero invalid responses, dropped/failed actions and planner failures.
+- Added actual subprocess task transport through a random nested workspace: discover,
+  fail a checker, retain requirements, repair, execute the checker and submit its
+  freshly generated answer. Also checked relative multiline scripts, malformed context,
+  obstacle-aware task refusal, cash conversion, firing/maintenance priority and mirrored
+  three-front-wall selection. Solver instructions in tests are prescribed, not real LLMs.
+- All 25 runtime modules and the embedded sandbox program parse as Python 3.11 syntax.
+  Exact Python 3.11.10 execution remains untested locally.
+
+Release:
+
+- Archive: `submissions/v0/submission-v0.6.tar.gz` (26 runtime files including entrypoint).
+- SHA-256: `53ee4f7761d1a69b946a79bfe56f633f2ea3b1d7e959c95e91dd160eec24be7d`.
+- Source and clean-extraction HTTP checks passed for both sides, including malformed
+  JSON, null/list bodies and 71 opening turns. The restricted synthetic world reached
+  three staffed guns and 12/13 walls; maximum observed HTTP latency was 89.7 ms.
+  Archive module bytes exactly matched the source; no tests, logs or references are included.
+
+Next evidence and limitations:
+
+- This release has no official match evidence and no claim of 2000 points or sustained
+  survival. Test worlds do not represent real enemy pressure or LLM quality.
+- Return sanitized v0.6 summaries: task accept/command/error/submit/completion and gold;
+  day-one/day-two purchases and actual use; second-night front-wall levels/health,
+  base health and staffed guns; third-day collect/sell/move counts and carried stock.
+- Inspect whether task context persists through actual failures, deliveries finish
+  before recall, and stock becomes spendable income. If failures persist, request a
+  narrowly redacted command/checker excerpt rather than entire sensitive task files.
+- Dynamic traffic, unknown competitor mine depletion, greedy multi-stop routing and
+  estimated task duration remain limitations requiring platform calibration.
 
 ### 2026-09-16 - v0.5 local economy, individual recall and task command compatibility
 

@@ -64,12 +64,14 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 
 - `grid.py`: occupancy and pathfinding
 - `movement.py`: joint next-step scheduling
+- `travel.py`: shared work/delivery/return route budgets and recall margins
 - `defense.py`: normalized threat geometry and fixed opening
 - `economy.py`: construction access checks, persistent mining/sale plans, and defense budget
 - `market.py`: current/future price separation and bounded official-news windows
 - `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use
 - `combat.py`: controller release and target allocation
 - `tasking.py`: task recovery, LLM coordination, and evidence-gated treasure state
+- `task_context.py`: bounded per-task documents, workspace, and execution evidence
 - `task_programs.py`: bounded sandbox inspection, repair/check, and API aggregation procedures
 - `opponent.py`: global modes and Boss threshold evaluation
 - `planner.py`: full-match orchestration and module degradation

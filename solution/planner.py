@@ -28,6 +28,7 @@ from .movement import MoveIntent, schedule_moves
 from .opponent import OpponentModel, StrategyMode, choose_mode, desired_boss_orders
 from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
+from .travel import TravelBudget
 from .tasking import AdvancedPlan, TaskManager, TreasureKnowledge, parse_structured_llm
 
 
@@ -140,6 +141,16 @@ class CompetitionPlanner:
         advanced = AdvancedPlan()
         treasure_prompt = ""
         recall_intents = self._individual_recall(turn, state, config)
+        # A return reservation must not suppress a one-turn adjacent delivery.
+        for intent in tuple(recall_intents):
+            role=turn.team_our.unit(intent.actor_id)
+            if TravelBudget.for_role(turn,role,config).cost()+1 >= turn.rounds_until_night:
+                continue
+            maintenance=plan_upgrade_or_repair(turn,role,budget,config,allow_move=False)
+            if maintenance.action is not None:
+                actions.append(maintenance.action)
+                recall_intents.remove(intent)
+                used.add(role.unit_id)
         intents.extend(recall_intents)
         used.update(i.actor_id for i in recall_intents)
         if len(used) < len(turn.controllable):
@@ -411,16 +422,19 @@ class CompetitionPlanner:
                 intents.append(MoveIntent(assignment.controller.unit_id,(assignment.controller.pos,),115,
                                           yield_cells=assignment.weapon.pos.neighbours()))
 
-        # A cooling launcher operator may use an already-carried adjacent repair
-        # item, but remains at the control cell and does not start a shopping trip.
+        # An idle operator may use carried maintenance items without leaving control.
+        # An available shot always takes priority over this maintenance action.
+        firing_controllers={a.controller_id for a in actions if a.action_type==ActionType.ATTACK}
         for assignment in active_assignments:
-            if assignment.weapon.role_type != "rocket" or assignment.weapon.cooldown <= 0:
+            if assignment.controller.unit_id in firing_controllers:
                 continue
             role = assignment.controller
+            if role.pos is None or role.pos.distance_to(assignment.weapon.pos)>1:
+                continue
             if any(intent.actor_id == role.unit_id and role.pos not in intent.goals for intent in intents):
                 continue
             maintenance = plan_upgrade_or_repair(turn, role, budget, config,
-                                                 allow_move=False, critical_only=True)
+                                                 allow_move=False, critical_only=False)
             if maintenance.action is not None and maintenance.action.action_type == ActionType.USE:
                 actions.append(maintenance.action)
                 intents = [intent for intent in intents if intent.actor_id != role.unit_id]
@@ -433,7 +447,7 @@ class CompetitionPlanner:
                     if any(robot.pos and cell.distance_to(robot.pos) <= robot.attack_range for robot in threats):
                         continue
                     shifted = plan_upgrade_or_repair(turn, replace(role,pos=cell), budget, config,
-                                                     allow_move=False, critical_only=True)
+                                                     allow_move=False, critical_only=False)
                     if shifted.action is not None and shifted.action.action_type == ActionType.USE:
                         intents = [intent for intent in intents if intent.actor_id != role.unit_id]
                         intents.append(MoveIntent(role.unit_id,(cell,),125,yield_cells=assignment.weapon.pos.neighbours()))
@@ -596,14 +610,14 @@ class CompetitionPlanner:
         result = []
         for intent in intents:
             role = turn.team_our.unit(intent.actor_id)
-            path = shortest_path(grid, role.pos, intent.goals)
-            distance = len(path)-1 if path else turn.rounds_until_night
+            travel=TravelBudget.for_role(turn,role,config)
+            distance=travel.cost()
             if not intent.goals:
                 intent = replace(intent, goals=(role.pos,))
             # Static shortest paths omit queued humans and walls built en route.
             # Reserve a separate traffic allowance without recalling other roles.
             if (state.recall_day == turn.day_index or intent.actor_id in state.recalled_roles
-                    or distance+config.recall_safety_buffer+config.recall_traffic_buffer >= turn.rounds_until_night):
+                    or distance+travel.margin >= turn.rounds_until_night):
                 state.recalled_roles[intent.actor_id] = turn.day_index
                 result.append(intent)
         return result

@@ -80,7 +80,7 @@ def schedule_moves(
             continue
         step = path[1]
         if step in intent.goals and any(
-            other.priority > intent.priority and step in routes.get(other.actor_id, ())[1:]
+            other.priority > intent.priority and step in routes.get(other.actor_id, ())[1:3]
             for other in ordered if other.actor_id != intent.actor_id
         ):
             continue

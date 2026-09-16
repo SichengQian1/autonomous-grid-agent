@@ -24,7 +24,7 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.5 primary composition: two rocket launchers and one railgun.
+- v0.6 primary composition: two rocket launchers and one railgun.
 - Keep two railguns and one rocket launcher as the first comparison.
 - Place all three preferred weapons on the rear edge of the legal weapon ring,
   with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
@@ -129,3 +129,25 @@ telemetry promotes them to a runtime observation.
   complete coordinates/time/items, an affordable shopping list and a safe route.
   Night-only treasure is considered only after threats clear. False confidence
   from an LLM remains a platform calibration risk.
+
+## v0.6 Operating Decisions
+
+- Preserve initial task requirements, discovered relative workspace and recent execution
+  results until the task ends. Run scripts/checkers in that workspace. Failed execution
+  cannot justify a final answer; bounded checked procedures can submit their output
+  directly. Local tests use generated answers, not recorded task solutions.
+- Use the same obstacle-aware route and traffic margin for task acceptance, procurement,
+  mining cash-out and individual recall. Task duration is still an estimate, not a guarantee.
+- Compare selling carried stock with continuing a full collect/sell/return trip. Shorten
+  batches when daylight is insufficient. Track successful own collections as a conservative
+  mine estimate; competitor depletion remains unknown. Keep all mining in our normalized half.
+- Let a courier complete a delivery before a distant returning role reaches that cell.
+  Reserve the higher-priority route's next two cells rather than its entire future path;
+  next-step collision, occupied-cell and yielding checks remain enforced.
+- Use adjacent carried upgrades during recall only while there is time to return. At
+  night firing takes priority; idle operators can use carried upgrades without leaving
+  their weapon, including healthy weapons that need their first power increase.
+- From day two, target three front walls for level two, choosing damaged walls first.
+  Preserve the first rocket fund except for critical repairs; remaining level-one guns
+  remain valuable. This is a funded procurement target, not a fixed-time free upgrade.
+  Upgrade healing remains subject to platform evidence and runtime health.

@@ -52,6 +52,7 @@ class EconomicOperationsTests(unittest.TestCase):
 
     def test_batch_mining_completes_sale_with_fewer_trips(self):
         raw=self.raw(); manager=EconomyManager(); state=WorldState(); sales=[]; collected=0; moves=0
+        raw['teamOur']['goldNum']=0  # Test ordinary batching, not a nearly funded upgrade.
         for r in range(1,45):
             raw['roundNo']=r; turn=Turn.from_raw(raw); state.ingest(turn)
             plan=manager.plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,12))

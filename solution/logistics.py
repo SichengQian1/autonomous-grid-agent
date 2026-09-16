@@ -8,6 +8,7 @@ from .economy import DefenseBudget
 from .models import Turn, Unit
 from .movement import MoveIntent
 from .grid import OccupancyGrid, distance_field, interaction_cells
+from .travel import TravelBudget
 from .rules import (
     DEFAULT_CONFIG,
     ROLE_RAILGUN,
@@ -86,7 +87,8 @@ class LogisticsManager:
         if self.carrier_id is not None:
             carrier = turn.team_our.unit(self.carrier_id)
             if carrier is None or not carrier.alive or turn.round_no-self.started > config.logistics_trip_limit:
-                self.retry_after[self.carrier_id] = turn.round_no+5
+                if carrier is None or not any(i=="WallFixer" or "UpgradeVoucher" in i for i in carrier.backpack):
+                    self.retry_after[self.carrier_id] = turn.round_no+5
                 self.carrier_id, self.orders, self.stage = None, [], "expired"
         if self.carrier_id is not None and self.carrier_id != role.unit_id:
             # A second available role may use carried goods, but cannot duplicate a shopping trip.
@@ -101,7 +103,7 @@ class LogisticsManager:
             return interaction_cells(grid, target.pos)
         def distance(target):
             return min((distances.get(p,10000) for p in goals(target)),default=10000)
-        options = _maintenance_options(turn)
+        options = _maintenance_options(turn,config)
         first_rocket = any(u.role_type == ROLE_ROCKET and u.level >= 2 and u.alive for u in turn.team_our.roles)
         if not first_rocket:
             # Fund the first power increase before buying optional small items.
@@ -164,7 +166,14 @@ class LogisticsManager:
                 return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=delivery.item,targets=(target.pos,)))
             return LogisticsPlan(move=MoveIntent(role.unit_id,goals(target),90))
         if needed and missing_cost <= spending and shop_distance < 10000:
-            if turn.is_day and turn.rounds_until_night <= shop_distance + config.recall_safety_buffer + 3:
+            trip=TravelBudget.for_role(turn,role,config)
+            stops=[(shop_goals,len(needed))]
+            stops.extend((goals(target),1) for order in self.orders
+                         if (target:=turn.team_our.unit(order.target_id)) is not None)
+            if not trip.fits(stops):
+                self.orders=[order for order in self.orders if order.item in role.backpack]
+                if not self.orders:self.carrier_id=None
+                self.stage="defer_return_deadline"
                 return LogisticsPlan()
             self.stage = "purchase"
             if shop_distance == 0:
@@ -182,8 +191,20 @@ class LogisticsManager:
         return LogisticsPlan()
 
 
-def _maintenance_options(turn: Turn) -> list[tuple[str, Unit, int]]:
+def _maintenance_options(turn: Turn, config: StrategyConfig = DEFAULT_CONFIG) -> list[tuple[str, Unit, int]]:
     result: list[tuple[str, Unit, int]] = []
+    station=turn.team_our.station()
+    front_targets=set()
+    if station is not None and turn.day_index>=2:
+        frame=turn.coordinate_frame
+        cells=[frame.normalize(p) for p in station.footprint()]
+        front=max(p.x for p in cells)+2
+        center=sum(p.y for p in cells)/len(cells)
+        walls=[u for u in turn.team_our.roles if u.role_type==ROLE_WALL and u.alive and u.pos is not None
+               and frame.normalize(u.pos).x==front]
+        quota=max(0,config.second_day_front_upgrades-sum(u.level>=2 for u in walls))
+        front_targets={u.unit_id for u in sorted((u for u in walls if u.level==1),
+                        key=lambda u:(u.health,abs(frame.normalize(u.pos).y-center)))[:quota]}
     for target in turn.team_our.roles:
         if target.health <= 0 or target.pos is None:
             continue
@@ -199,9 +220,11 @@ def _maintenance_options(turn: Turn) -> list[tuple[str, Unit, int]]:
                     (f"StationUpgradeVoucher{target.level}", target, upgrade_value(turn, target))
                 )
         elif target.role_type == ROLE_WALL:
-            if target.level in {1, 2} and missing >= max_health // 5:
+            front_upgrade=target.unit_id in front_targets
+            if target.level in {1, 2} and (missing >= max_health // 5 or front_upgrade):
                 result.append(
-                    (f"WallUpgradeVoucher{target.level}", target, upgrade_value(turn, target))
+                    (f"WallUpgradeVoucher{target.level}", target, upgrade_value(turn, target)
+                     + (2400 if front_upgrade else 0) + (3000 if critically_damaged(target) else 0))
                 )
             if missing >= max_health // 3:
                 result.append(("WallFixer", target, 1000 + missing * 2))
@@ -218,11 +241,10 @@ def plan_upgrade_or_repair(
     allow_move: bool = True,
     critical_only: bool = False,
 ) -> LogisticsPlan:
-    del config
     if role.pos is None:
         return LogisticsPlan()
 
-    options = _maintenance_options(turn)
+    options = _maintenance_options(turn,config)
     if critical_only:
         options = [
             option

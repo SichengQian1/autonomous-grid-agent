@@ -30,6 +30,7 @@ class WorldState:
     recall_day: int = -1
     recalled_roles: dict[int, int] = field(default_factory=dict)
     market: MarketMemory = field(default_factory=MarketMemory)
+    mine_remaining: dict[Pos, int] = field(default_factory=dict)
 
     def reset(self, turn: Turn) -> None:
         self.generation += 1
@@ -51,6 +52,7 @@ class WorldState:
         self.previous_station_health = None
         self.recall_day = -1
         self.recalled_roles.clear()
+        self.mine_remaining.clear()
         self.market = MarketMemory()
 
     def ingest(self, turn: Turn) -> None:
@@ -74,6 +76,12 @@ class WorldState:
         self.last_errors = turn.errors
         self.last_command_result = turn.last_command_result
         self.last_treasure_result = turn.last_summon_treasure_result
+        visible_mines={z.pos for z in turn.map_info.zones if z.pos is not None and z.neutral_type in {"stone","iron","copper"}}
+        self.mine_remaining={p:self.mine_remaining.get(p,10) for p in visible_mines}
+        for actor,(issued,action,_) in self.pending_actions.items():
+            if turn.round_no-issued==1 and action.action_type==ActionType.COLLECT and action.targets and turn.last_action_results.get(actor) is True:
+                p=action.targets[0]
+                if p in self.mine_remaining:self.mine_remaining[p]=max(0,self.mine_remaining[p]-1)
         self._consume_action_feedback(turn)
         self._observe_rear_threat(turn)
         self.market.observe(turn.world_news.official_news, turn.day_index)

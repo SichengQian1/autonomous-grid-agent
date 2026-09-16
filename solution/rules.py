@@ -99,6 +99,7 @@ class StrategyConfig:
     max_wall_count: int = MAX_WALL_COUNT
     recall_safety_buffer: int = 4
     recall_traffic_buffer: int = 3
+    second_day_front_upgrades: int = 3
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3

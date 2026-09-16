@@ -47,7 +47,10 @@ def run():
             parent = docs[0].parent
             docs = docs[:1]
             nearby = [p for p in files if p.is_relative_to(parent)]
-        else: nearby = files
+        else:
+            if requested: return {"ok":False,"status":"task_document_missing"}
+            parent=inside(options.get("cwd","."))
+            nearby = [p for p in files if p.is_relative_to(parent)]
         docs += [p for p in nearby if p.name.lower() in ("readme.md", "spec.md", "api_docs.md", "task.md") and p not in docs]
         docs += [inside(p) for p in options.get("paths",[])[:4] if inside(p).is_file() and inside(p) not in docs]
         docs += [p for p in nearby if p.suffix==".py" and p.stat().st_size<6000 and p not in docs][:3]
@@ -58,7 +61,7 @@ def run():
             output.append({"path":str(p.relative_to(base)),"text":text})
             budget -= len(text)
             if budget <= 0: break
-        return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]]}
+        return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]],"workspace":str(parent.relative_to(base))}
     if kind in ("repair", "script"):
         edits = options.get("edits", []) if kind == "repair" else []
         if not isinstance(edits,list) or len(edits)>8: raise ValueError("edit_limit")
@@ -156,6 +159,8 @@ try:
     result=run()
 except Exception as error:
     result={"ok":False,"status":type(error).__name__}
+    if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate"}:
+        result["reason"]=str(error)
 print(json.dumps({"procedure_result":result},ensure_ascii=False))
 '''
 
