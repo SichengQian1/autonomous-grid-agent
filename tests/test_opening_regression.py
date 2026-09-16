@@ -15,6 +15,7 @@ class RestrictedOpeningWorld(SyntheticWorld):
 
     def __init__(self, side="challenger"):
         super().__init__(side)
+        self.map_width, self.map_height = 24, 20
         self.roles = [unit(1, "worker", 5, 11), unit(2, "worker", 6, 11),
                       unit(3, "pioneer", 7, 11),
                       unit(10, "station", 5, 13, health=1500, level=1)]
@@ -36,9 +37,21 @@ class RestrictedOpeningWorld(SyntheticWorld):
                 zone["pos"] = {"x": 23-p["x"], "y": 19-p["y"]}
         self.build_attempts = []
         self.round_no = 0
+        self.mine_uses = {}
+        self.pending_mines = []
 
     def request(self, round_no):
         self.round_no = round_no
+        # Resource units are finite; reappear on the next request outside rings.
+        while self.pending_mines:
+            zone = self.pending_mines.pop()
+            occupied = {(u['pos']['x'],u['pos']['y']) for u in self.roles}
+            occupied.update((z['pos']['x'],z['pos']['y']) for z in self.zones)
+            origin = zone['pos']
+            candidates = [dict(x=x,y=y) for x in range(24) for y in range(20)
+                          if (x,y) not in occupied and self.ring(dict(x=x,y=y))>2]
+            zone['pos'] = min(candidates, key=lambda p:(max(abs(p['x']-origin['x']),abs(p['y']-origin['y'])),p['x'],p['y']))
+            self.zones.append(zone)
         raw = super().request(round_no)
         raw["mapInfo"] = {"width": 24, "height": 20, "zones": self.zones}
         raw["vendorShopList"].append({"name": "copper", "price": 5})
@@ -54,6 +67,7 @@ class RestrictedOpeningWorld(SyntheticWorld):
         accepted = {}
         rejected = {}
         by_id = {str(r["id"]): r for r in self.roles}
+        initial_zones = tuple(self.zones)
         for actor, cmd in response["roleCommandMap"].items():
             if cmd["action"] == "build":
                 correct = self.ring(cmd["targetPos"][0]) == (2 if cmd["name"] == "wall" else 1)
@@ -63,8 +77,22 @@ class RestrictedOpeningWorld(SyntheticWorld):
                     continue
             if cmd["action"] == "collect":
                 # Do not repeat the old simulator's bug of turning every ore into stone.
-                zone = next(z for z in self.zones if z["pos"] == cmd["targetPos"][0])
+                zone = next(z for z in initial_zones if z["pos"] == cmd["targetPos"][0])
                 by_id[actor]["backpack"].append(zone["neutralType"])
+                key = (zone["neutralType"],zone["pos"]["x"],zone["pos"]["y"])
+                self.mine_uses[key] = self.mine_uses.get(key,0)+1
+                if self.mine_uses[key] == 10:
+                    self.zones.remove(zone)
+                    # Nearby alternative positions keep this fixture bounded;
+                    # tests for distant depleted mines live in economy tests.
+                    target = dict(zone["pos"])
+                    delta = -1 if self.side == "challenger" else 1
+                    target["x"] += delta
+                    if not (0 <= target["x"] < 24) or self.ring(target) <= 2:
+                        target["x"] = 2 if self.side == "challenger" else 21
+                    new_key = (zone["neutralType"],target["x"],target["y"])
+                    self.mine_uses[new_key] = 0
+                    self.pending_mines.append({"neutralType":zone["neutralType"],"pos":target})
                 rejected[actor] = True
                 continue
             accepted[actor] = cmd

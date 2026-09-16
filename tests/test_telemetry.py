@@ -6,9 +6,21 @@ import unittest
 from solution.models import Turn
 from solution.telemetry import Telemetry, build_turn_event, decode_event, encode_event
 from tests.helpers import synthetic_turn
+from solution.rules import DEFAULT_CONFIG
+from unittest.mock import patch
 
 
 class TelemetryTests(unittest.TestCase):
+    def test_full_match_budget_retains_final_boundary(self):
+        telemetry=Telemetry(DEFAULT_CONFIG.telemetry_byte_budget,DEFAULT_CONFIG.telemetry_reserve_bytes)
+        raw=synthetic_turn(); records=[]
+        with patch('solution.telemetry.LOGGER.info',side_effect=records.append):
+            for r in range(1,1301):
+                raw['roundNo']=r
+                telemetry.record_turn(Turn.from_raw(raw),{'roleCommandMap':{}},elapsed_ms=1,dropped_actions=0)
+        self.assertLessEqual(telemetry.used_bytes,telemetry.byte_budget)
+        self.assertEqual(decode_event(records[-1])['r'],1300)
+
     def test_wire_target_positions_are_recorded(self):
         event = build_turn_event(Turn.from_raw(synthetic_turn()),
             {"roleCommandMap":{"1":{"action":"build","name":"rocket","targetPos":[{"x":1,"y":2}]}}},

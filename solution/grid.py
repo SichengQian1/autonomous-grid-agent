@@ -103,3 +103,16 @@ def shortest_path(
 
 def interaction_cells(grid: OccupancyGrid, target: Pos) -> tuple[Pos, ...]:
     return tuple(pos for pos in target.neighbours() if grid.contains(pos) and pos not in grid.blocked)
+
+
+def distance_field(grid: OccupancyGrid, starts: Iterable[Pos], *, max_nodes: int = 4096) -> dict[Pos, int]:
+    """One bounded flood fill for many route-cost queries in the same turn."""
+    distances = {p: 0 for p in starts if grid.contains(p) and p not in grid.blocked}
+    queue = deque(distances)
+    while queue and len(distances) < max_nodes:
+        current = queue.popleft()
+        for other in current.neighbours():
+            if grid.contains(other) and other not in grid.blocked and other not in distances:
+                distances[other] = distances[current] + 1
+                queue.append(other)
+    return distances

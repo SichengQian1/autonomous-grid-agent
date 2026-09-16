@@ -144,7 +144,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.3",
+        "agentVersion": "v0.4",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,
@@ -172,6 +172,9 @@ def build_turn_event(
             "weapons": sum(u.is_weapon and u.alive for u in turn.team_our.roles),
             "walls": sum(u.role_type == "wall" and u.alive for u in turn.team_our.roles),
         },
+        "prices": {i.name:i.price for i in turn.vendor_shop if i.name in {"stone","iron","copper"}},
+        "tasks": [{"position":_pos(t.task_position),"valid":t.is_valid,"cooldown":t.cooldown_rounds,
+                   "timeout":t.timeout_rounds,"score":t.score_reward,"gold":t.gold_reward} for t in turn.team_our.player_tasks[:4]],
     }
 
 
@@ -209,6 +212,8 @@ class Telemetry:
         diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
         critical = bool(turn.errors) or turn.round_in_day in {1, 70, 71, 130}
+        if turn.team_our.station() is None and not critical and turn.round_no % 30:
+            return
         event = build_turn_event(
             turn,
             response,
@@ -216,6 +221,13 @@ class Telemetry:
             dropped_actions=dropped_actions,
         )
         event["diagnostics"] = dict(diagnostics or {})
+        # Distribute the budget across the match instead of spending it in opening nights.
+        allowance = 32000 + (self.byte_budget-self.reserve_bytes)*min(turn.round_no,1300)//1300
+        if self.used_bytes > allowance and not critical:
+            for key in ("robots","enemyBuildings","robotCounts","map","tasks"):
+                event.pop(key,None)
+            event["roles"] = [u for u in event["roles"] if u[1] != "wall"]
+            event["detail"] = "compact"
         if turn.round_in_day == 1:
             event["zones"] = [[z.neutral_type, _pos(z.pos)] for z in turn.map_info.zones][:100]
         if not self.emit(event, critical=critical) and turn.round_no % 30 == 0:

@@ -24,7 +24,12 @@ match logs here.
 - `local/` contains private working notes and is excluded from Git.
 - Competition code lives in `solution/`.
 - Tests use only synthetic or sanitized data.
-- Do not commit, push, upload, or launch a match without explicit user approval.
+- Standing user authorization (2026-09-16): after requested work, verification and
+  confidentiality checks, commit and push completed changes and submission artifacts
+  to the configured GitHub remote on `codex/v<major>` without asking again.
+- Use explicit staged file lists, preserve unrelated changes, never force-push,
+  and verify the remote branch hash after pushing. Platform uploads and matches
+  still require separate user instruction.
 
 ## Team Workflow
 
@@ -73,9 +78,11 @@ After a change:
 - `solution/movement.py`: joint next-cell reservation and collision avoidance.
 - `solution/defense.py`: normalized front/rear geometry and defensive layout.
 - `solution/economy.py`: defense budget, construction, and resource value.
-- `solution/logistics.py`: runtime-shop repair and upgrade workflow.
+- `solution/logistics.py`: persistent runtime-shop baskets, delivery and maintenance.
+- `solution/market.py`: official-news windows, separate from current prices.
 - `solution/combat.py`: controllers, release levels, and projected target allocation.
 - `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
+- `solution/task_programs.py`: generic bounded sandbox procedures.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
 - `solution/telemetry.py`: bounded sanitized `AGLOG2` records.
@@ -85,6 +92,92 @@ recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. A
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-16 - v0.4 operating-cycle candidate
+
+Status and evidence:
+
+- Based on `f18930a49dd56c815ba11c055ca87b153f247921` on `codex/v0`.
+  This revision distributes the v0.4 candidate through GitHub under the standing
+  commit/push authorization above. No v0.4 platform upload or match has been performed.
+- The returned v0.3 run confirms three weapons by state round 4 and ten walls at
+  the first night, but no completed tasks/upgrades. The third night had an
+  unstaffed railgun and the base disappeared in round 362. Side/rear robots were
+  observed; fixed-gate safety must be reassessed against actual paths.
+- Two reference runs had four tasks and 320 task gold before the first night,
+  16/18 walls and a level-two rocket. They reached the tenth night in the supplied
+  records, not a confirmed final victory. Their raw data remains private.
+- The traffic failure combined a side railgun slot with two held rocket operators
+  blocking access. A coordinate-only change would not resolve that deadlock.
+
+Implemented groups:
+
+1. Three preferred rear weapon sites, separate control sites, obstacle-aware joint
+   assignments, and restricted yielding by idle/cooling roles. Temporary occupancy
+   cannot permanently displace a weapon site. Wall building checks reachability.
+2. Task state cleanup, short-task eligibility, fenced structured JSON, progress
+   diagnostics and bounded retries. Generic sandbox programs inspect local files,
+   make unique edits then run a checker, or aggregate complete paginated loopback
+   API results. Checked answers can submit directly; answers are never cached across
+   task instances. Background news replies cannot swallow task responses.
+3. One engineer plus one economy/procurement worker. Persistent stone batches survive
+   mine depletion; economic mining uses route-adjusted value, stable targets and
+   batch sales. Front walls precede nearby side work rather than alternating faces.
+4. Committed purchase baskets and destinations, inventory-confirmed delivery, stale
+   trip recovery, critical repair spending from emergency reserves, and level-two
+   weapons before optional level-three development. Tasks retain the pioneer by day
+   and after a cleared night. Upgrade delivery uses the wire target anchor, avoiding
+   repeated validation rejection beside a different cell of the 2x2 base.
+5. Live market prices remain authoritative. Explicit official news and source-quoted
+   interpretations can create bounded future windows; stock holding requires defense
+   and working capital. Folk clues remain separate. Treasure shopping/attempts require
+   multi-day evidence, confidence, time/item checks and defense cash reserves.
+6. Whole-match telemetry pacing, task/market/logistics diagnostics and per-weapon
+   inactivity reasons. Decoder accepts original or decoded compressed logs and avoids
+   associating action feedback across missing turns.
+
+Validation approach and limitations:
+
+- Layout and traffic regressions include both sides, complete walls, all six controller
+  arrival permutations, and temporary role occupancy. Generic repair tests use fresh
+  temporary directories and dynamic checker output; API tests serve multiple local pages.
+- Opening fixtures independently enforce build rings, finite mines and unoccupied
+  respawn cells. The replay now executes actual purchase/inventory/upgrade transitions
+  and checks physical actions independently. It counts rejected planner actions as well
+  as malformed responses and failed actions. The earlier harness omitted these checks.
+- In the prescribed-answer income fixture, both sides finish four tasks for 320 gold
+  and upgrade rockets before night. The LLM replies are deliberately synthetic: this
+  proves scheduling and cash conversion only, not real task-solving success.
+- First-night walls remain about 12–13 in these finite-mine fixtures, below the reference
+  16–18. Do not report the first-day operating target as fully achieved.
+- Runtime robot navigation/damage, real LLM/checker compatibility, treasure interpretation,
+  sustained repair under pressure, and third-night/ten-day survival remain unverified.
+  Night economic actions retain the existing failure-disable guard.
+- Python 3.11.10 is still not available locally; Python 3.11 syntax checking is useful
+  but is not a substitute for running the exact target interpreter.
+
+Final local verification and candidate artifact:
+
+- 135 unittest cases and bytecode compilation pass under Python 3.14.6.
+  Both 1,300-turn synthetic sides report zero invalid responses, failed actions and
+  actions dropped by validation. These are internal regression checks, not wins.
+- All 23 runtime modules and the embedded sandbox program parse as Python 3.11.
+- Source startup via `run.sh` and a clean archive extraction pass HTTP malformed-JSON,
+  non-object fallback and an eight-turn independent restricted construction scenario.
+- The archive contains only `CoreGeek/main3.py` and 23 `solution/*.py` modules;
+  extracted module bytes match the reviewed source. No logs, references or tests ship.
+- Local candidate: `submissions/v0/submission-v0.4.tar.gz`.
+  SHA-256: `8ba7599cdb8de17b2302eb8ca106b43ea9232a7d106afe5df27580b428adc2a7`.
+- `submissions/v0/SHA256SUMS` includes this candidate; previous artifacts are preserved.
+
+Next platform acceptance:
+
+1. Check all three rear weapons and operators at rounds 70/71, wall count and intrusion paths.
+2. Check task completion/elapsed turns and actual gold, then first rocket upgrade timing.
+3. Check second-day weapon/base upgrades and third-night staffing/repair, not just final score.
+4. Check sale batches, delivery delay, live price windows and evidence-gated treasure results.
+5. Compare more than one match on both sides; do not infer win rate from a synthetic replay.
+
 
 ### 2026-09-15 - v0.3 opening failure repair and restricted-zone regression
 

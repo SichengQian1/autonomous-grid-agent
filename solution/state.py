@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from .actions import Action, ActionType, Decision
 from .geometry import Pos
 from .models import ErrorFeedback, Turn
+from .market import MarketMemory
 
 
 @dataclass(slots=True)
@@ -27,6 +28,7 @@ class WorldState:
     rear_threat_observed: bool = False
     previous_station_health: int | None = None
     recall_day: int = -1
+    market: MarketMemory = field(default_factory=MarketMemory)
 
     def reset(self, turn: Turn) -> None:
         self.generation += 1
@@ -47,6 +49,7 @@ class WorldState:
         self.rear_threat_observed = False
         self.previous_station_health = None
         self.recall_day = -1
+        self.market = MarketMemory()
 
     def ingest(self, turn: Turn) -> None:
         incoming_key = (turn.team_our.team_id, turn.team_our.team_type)
@@ -71,6 +74,7 @@ class WorldState:
         self.last_treasure_result = turn.last_summon_treasure_result
         self._consume_action_feedback(turn)
         self._observe_rear_threat(turn)
+        self.market.observe(turn.world_news.official_news, turn.day_index)
         self._append_unique(
             self.official_news_history,
             turn.round_no,

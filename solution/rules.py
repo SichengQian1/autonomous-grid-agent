@@ -102,9 +102,9 @@ class StrategyConfig:
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
     wall_stone_target: int = 10
-    stone_batch_size: int = 6
+    stone_batch_size: int = 10
     initial_wall_target: int = 10
-    task_minimum_timeout: int = 12
+    task_minimum_timeout: int = 4
     task_return_buffer: int = 4
     treasure_confidence_threshold: float = 0.95
     allow_unverified_night_economy: bool = True
@@ -117,8 +117,16 @@ class StrategyConfig:
     task_command_output_limit: int = 16000
     task_response_wait: int = 3
     task_submit_limit: int = 3
-    telemetry_byte_budget: int = 512 * 1024
-    telemetry_reserve_bytes: int = 64 * 1024
+    telemetry_byte_budget: int = 2 * 1024 * 1024
+    telemetry_reserve_bytes: int = 256 * 1024
+    mining_batch_size: int = 10
+    mining_minimum_batch: int = 6
+    first_night_wall_target: int = 16
+    logistics_trip_limit: int = 40
+    task_stall_limit: int = 3
+    task_expected_rounds: int = 6
+    treasure_gold_reserve: int = 125
+    market_forecast_weight: float = 1.25
 
 
 DEFAULT_CONFIG = StrategyConfig()

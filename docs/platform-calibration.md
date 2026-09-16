@@ -40,7 +40,7 @@ PowerShell:
 python .\tools\diagnostics\summarize_match_log.py "D:\path\to\match-log.jsonl"
 ```
 
-For a v0.2 or v0.3 agent `.log` or `.log.xz`, print a bounded diagnosis:
+For an agent `.log`, decoded `.jsonl`, or either format compressed with `.xz`, print a bounded diagnosis:
 
 ```powershell
 python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" --summary
@@ -55,14 +55,31 @@ format or a few manually redacted structural lines so the parser can be adapted.
 
 ## Current Unverified Boundary
 
-The v0.2 returned log established 13 failed weapon builds, no walls or weapons at
-the first night, and a missing base by round 99. v0.3 corrects ring geometry against
-the source diagram and uses independent restricted-zone synthetic regressions.
-For the first v0.3 match prioritize: round of third weapon, wall count at round 70,
-controller positions, construction result coordinates, and task error codes.
+The returned v0.3 run confirms that the legal-ring repair enabled three weapons
+and ten walls by the first night. It also exposes blocked controller access on the
+third night, no successful task income, single-item sales, no upgrades, and base
+loss in that night. Successful construction is not evidence of competitive strength.
+Side/rear robots were observed, so a one-direction-only threat assumption is invalid.
+The two fixed rear gates remain an experiment requiring route and exposure checks.
 
-The following remain `UNVERIFIED_PLATFORM_BEHAVIOR`: exact build cells; real robot
-routing and settlement order; rear-exit safety; weapon/wall projectile interaction;
-rocket overlap; night economy; exact wave/Boss schedule; cross-map kill ownership;
-summon timing/stacking; task, LLM, sandbox, and treasure judging; and whether current
-defense margins/loadouts improve real match results.
+The v0.4 candidate changes layout/traffic, task procedures, worker economy,
+procurement and news/treasure planning together, with separate regression groups.
+Its task-income integration supplies prescribed synthetic LLM replies: it tests
+cash-to-upgrade scheduling, not real solving ability. Its combat harness is not an
+engine model and cannot establish survival or score.
+
+For the next platform run, retain artifact hash and collect bounded evidence for:
+
+1. third weapon completion, each controller's position and wall count at turns 70/71;
+2. task accepts, checked-command/result/submission sequence, success, errors and elapsed turns;
+3. first rocket upgrade and second-day weapon/base levels;
+4. sale batch quantities, actual gold changes, purchase-to-use delays and stranded items;
+5. third-night unstaffed weapons, cooldown recovery and side/rear intrusions;
+6. per-night base/critical-wall health, repair/upgrade uses and replacement construction;
+7. live prices versus news-derived windows and treasure result codes without raw clues/answers.
+
+Real robot routing, settlement, rear-gate safety, projectile interactions,
+night activity, LLM/task judging, treasure interpretation, and score/win rate
+remain unverified for v0.4. Run both map sides and more than one match before
+promoting the candidate to a stronger-strategy claim. Exact Python 3.11.10 runtime
+verification is also required.

@@ -45,12 +45,13 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The v0.3 implementation is active rather than an empty strategy. It includes
+The v0.4 candidate implementation is active. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
 state machines, bounded encoded telemetry, and opponent modes. Summon pressure and
-cross-map attacks are disabled by default. The opening first completes weapons and
-stone-funded walls within the permitted building rings, then releases an economy worker.
+cross-map attacks are disabled by default. One worker builds rear weapons and stone-funded walls while another mines and
+delivers upgrade/repair items. The pioneer prioritizes tasks; official news and
+folk clues feed separate market and treasure decisions.
 Unknown platform mechanics retain safe fallbacks and require practice calibration.
 
 On a Windows development computer, run the service directly from PowerShell:
@@ -75,7 +76,7 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.3`, this produces `submissions/v0/submission-v0.3.tar.gz`. The archive
+For `v0.4`, this produces `submissions/v0/submission-v0.4.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
@@ -93,8 +94,10 @@ python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decod
 ```
 
 For a compact shareable diagnosis, add `--summary` instead of redirecting output.
-This works for both v0.2 and v0.3 logs. v0.3 records actual `targetPos` values,
-construction readiness, failed sites, and task state.
+This accepts v0.2–v0.4 logs and already-decoded JSONL, including `.xz` files.
+v0.4 records task progress reasons, current prices, procurement stages, and why
+each weapon did not fire. Readiness and day/night boundaries are retained under
+a whole-match log budget.
 
 Task text, prompts, answers, command output, team IDs, names, and URLs are never
 written to these records. Logging is capped so diagnostics cannot grow without bound.

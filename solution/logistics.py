@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from collections import Counter
 
 from .actions import Action, ActionType
 from .economy import DefenseBudget
 from .models import Turn, Unit
 from .movement import MoveIntent
+from .grid import OccupancyGrid, distance_field, interaction_cells
 from .rules import (
     DEFAULT_CONFIG,
     ROLE_RAILGUN,
@@ -40,6 +42,10 @@ def estimated_max_health(unit: Unit) -> int:
     return max(values[index], unit.health, 1)
 
 
+def critically_damaged(unit: Unit) -> bool:
+    return unit.health * (3 if unit.role_type == ROLE_WALL else 2) < estimated_max_health(unit)
+
+
 def upgrade_value(turn: Turn, target: Unit) -> int:
     """Rank an upgrade including its user-observed full-heal value."""
 
@@ -57,6 +63,116 @@ def upgrade_value(turn: Turn, target: Unit) -> int:
     else:
         combat = 800
     return combat + missing_health * 2
+
+
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    item: str
+    target_id: int
+    level: int
+
+
+@dataclass(slots=True)
+class LogisticsManager:
+    carrier_id: int | None = None
+    orders: list[Delivery] = field(default_factory=list)
+    started: int = 0
+    stage: str = "idle"
+    retry_after: dict[int, int] = field(default_factory=dict)
+
+    def plan(self, turn: Turn, role: Unit, budget: DefenseBudget, config: StrategyConfig) -> LogisticsPlan:
+        if role.pos is None:
+            return LogisticsPlan()
+        if self.carrier_id is not None:
+            carrier = turn.team_our.unit(self.carrier_id)
+            if carrier is None or not carrier.alive or turn.round_no-self.started > config.logistics_trip_limit:
+                self.retry_after[self.carrier_id] = turn.round_no+5
+                self.carrier_id, self.orders, self.stage = None, [], "expired"
+        if self.carrier_id is not None and self.carrier_id != role.unit_id:
+            # A second available role may use carried goods, but cannot duplicate a shopping trip.
+            carried = plan_upgrade_or_repair(turn, role, budget, config, allow_move=False)
+            return carried if carried.action is not None and carried.action.action_type == ActionType.USE else LogisticsPlan()
+        if self.retry_after.get(role.unit_id, 0) > turn.round_no:
+            return LogisticsPlan()
+        grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+        distances = distance_field(grid, (role.pos,))
+        def goals(target):
+            # The wire action addresses the building anchor, including a 2x2 base.
+            return interaction_cells(grid, target.pos)
+        def distance(target):
+            return min((distances.get(p,10000) for p in goals(target)),default=10000)
+        options = _maintenance_options(turn)
+        first_levels = any(u.is_weapon and u.level == 1 for u in turn.team_our.roles)
+        def value(option):
+            name,target,score = option
+            if first_levels and target.is_weapon and target.level == 1: score += 3000
+            if name == "WallFixer" and target.health < estimated_max_health(target)//3: score += 3000
+            if target.role_type != ROLE_WALL and critically_damaged(target): score += 6000
+            return score - distance(target)*20
+        options = sorted((o for o in options if distance(o[1]) < 10000), key=value, reverse=True)
+        self.orders = [order for order in self.orders if any(
+            name == order.item and target.unit_id == order.target_id and target.level == order.level
+            for name,target,_ in options)]
+        if not self.orders:
+            self.carrier_id = None
+            # Inventory is authoritative. A voucher from an interrupted trip gets a new destination.
+            carried = [(name,target) for name,target,_ in options if name in role.backpack]
+            if carried:
+                name,target = carried[0]
+                self.orders = [Delivery(name,target.unit_id,target.level)]
+            else:
+                prices = {i.name:i.price for i in turn.weapon_shop}
+                committed = 0
+                owned = Counter(item for r in turn.controllable for item in r.backpack)
+                for name,target,_ in options:
+                    if any(o.target_id == target.unit_id for o in self.orders): continue
+                    if owned[name]:
+                        owned[name] -= 1
+                        continue
+                    price = prices.get(name,0)
+                    allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if critically_damaged(target) else budget.offensive
+                    if 0 < price <= allowance-committed and len(self.orders) < 3:
+                        self.orders.append(Delivery(name,target.unit_id,target.level))
+                        committed += price
+                if not self.orders:
+                    self.stage = "unfunded"
+                    return LogisticsPlan()
+            self.carrier_id, self.started = role.unit_id, turn.round_no
+        # Buy a planned basket, then deliver without re-ranking it every turn.
+        needed = Counter(o.item for o in self.orders) - Counter(role.backpack)
+        shop_goals = tuple(p for s in turn.zone_positions("weaponShop") for p in interaction_cells(grid,s))
+        shop_distance = min((distances.get(p,10000) for p in shop_goals),default=10000)
+        delivery = next((o for o in self.orders if o.item in role.backpack),None)
+        # Deliver immediately when adjacent, or when the remaining basket is no longer affordable.
+        prices = {i.name:i.price for i in turn.weapon_shop}
+        missing_cost = sum(prices.get(name,100000)*n for name,n in needed.items())
+        # Emergency reserves can fund a critical repair, never an optional extra.
+        emergency_order = any((target := turn.team_our.unit(o.target_id)) is not None and critically_damaged(target)
+                              for o in self.orders)
+        spending = max(budget.offensive, turn.team_our.gold-budget.mandatory) if emergency_order else budget.offensive
+        target = turn.team_our.unit(delivery.target_id) if delivery else None
+        if target is not None and (distance(target)==0 or not needed or missing_cost > spending or shop_distance >= 10000):
+            self.stage = "deliver"
+            if distance(target)==0:
+                return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=delivery.item,targets=(target.pos,)))
+            return LogisticsPlan(move=MoveIntent(role.unit_id,goals(target),90))
+        if needed and missing_cost <= spending and shop_distance < 10000:
+            if turn.is_day and turn.rounds_until_night <= shop_distance + config.recall_safety_buffer + 3:
+                return LogisticsPlan()
+            self.stage = "purchase"
+            if shop_distance == 0:
+                name = next(iter(needed))
+                quantity = needed[name]
+                if name == "WallFixer" and prices[name] * (quantity+1) <= budget.offensive:
+                    quantity += 1  # Carry one spare for the next damage event.
+                quantity = min(quantity, max(0,role.backpack_capacity-len(role.backpack)))
+                if quantity:
+                    return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name=name,quantity=quantity))
+                self.orders = []
+                return LogisticsPlan()
+            return LogisticsPlan(move=MoveIntent(role.unit_id,shop_goals,85))
+        self.orders, self.carrier_id, self.stage = [], None, "unfunded"
+        return LogisticsPlan()
 
 
 def _maintenance_options(turn: Turn) -> list[tuple[str, Unit, int]]:

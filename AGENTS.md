@@ -43,7 +43,9 @@ Before any commit, push, archive, or upload:
 
 When Git tracking is configured, confidential and local-only paths must also be protected by `.gitignore`. A `.gitignore` entry is an additional safeguard, not a substitute for inspecting the staged file list.
 
-Do not upload repository content or use remote services without the user's explicit instruction for that specific operation. The plan to use GitHub later is not standing authorization to push automatically.
+Standing user authorization (2026-09-16): after completing requested implementation, relevant verification, and the confidentiality checks above, commit and push the completed changes and versioned submission artifact to this project's configured GitHub remote on `codex/v<major>`. Do not ask again for routine commits and pushes covered by this authorization. Use explicit `git add` paths, never force-push, and verify the remote branch with `git ls-remote` after pushing. Preserve unrelated user changes and report the resulting commit.
+
+This authorization does not include uploading to the competition platform, launching matches, publishing confidential material, or using unrelated remote services; those still require explicit user instruction.
 
 ## 3. Public-Code Content Rules
 
@@ -326,7 +328,7 @@ Without an explicit request, do not:
 - delete files
 - force-reset Git state
 - overwrite official materials
-- commit or push code
+- commit or push code outside the standing GitHub authorization in Section 2
 - upload a submission
 - launch an official platform match
 
@@ -352,6 +354,7 @@ Discuss the following with the user before implementation:
 - performing a large-scale refactor
 - deleting or moving files
 - implementing a high-risk strategy based on an unverified rule
-- committing, pushing, uploading, or launching an official match
+- committing or pushing outside the standing GitHub authorization in Section 2
+- uploading to the competition platform or launching an official match
 
 Small bug fixes, tests, and implementation work already covered by an approved task may be completed directly and reported afterward.

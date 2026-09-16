@@ -24,17 +24,18 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.3 primary composition: two rocket launchers and one railgun.
+- v0.4 primary composition: two rocket launchers and one railgun.
 - Keep two railguns and one rocket launcher as the first comparison.
-- Place weapons behind the base, flanking rather than occupying the rear traffic
-  corridor. Build the centre-front wall first, then front extensions and side walls.
+- Place all three preferred weapons on the rear edge of the legal weapon ring,
+  with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
 - Keep two permanent rear corridor cells open for role traffic.
 - Build weapons only one cell from the whole base footprint and walls only two
   cells away. These are distinct rings; moving a weapon farther behind the base
   cannot override its permitted building area.
-- Use both workers to complete three weapons; collect stone in batches for the
-  initial ten walls. Then release one worker for income while the other completes
-  the remaining wall plan. Copper profitability must not preempt the stone quota.
+- Assign one engineer to three weapons and batches of stone-funded walls. Start the
+  other worker on income immediately. The initial wall target is sixteen, subject
+  to actual travel and safe recall; this is a target, not a proven platform result.
+  Every wall must preserve structural access to control positions and living roles.
 - Do not dynamically remove and rebuild the opening in V1. Reconsider only if
   platform evidence shows flanking or a changed spawn pattern.
 - Use tasks as a primary score and income engine when return-to-base safety permits.
@@ -49,8 +50,8 @@ Use a lexicographic decision hierarchy:
 - Ordinary projectile paths may interact with friendly walls differently from rockets.
 - A fixed rear opening may retain safe role access without creating a robot route.
 - `USER_OBSERVED`: upgrading a base, wall, or weapon restores it to full health.
-  v0.2 therefore scores both the upgrade breakpoint and restored health, while still
-  rushing one level-three rocket for its global-range breakpoint.
+  v0.4 scores both restored health and weapon development, prioritizes critical
+  maintenance, and favors level-two weapons before optional level-three upgrades.
 - Summon orders are profitable only when the opponent is near a defensive threshold.
 
 Each hypothesis must be converted into a small platform experiment and recorded in `docs/experiments.md` before it becomes a default strategy.
@@ -77,7 +78,7 @@ telemetry promotes them to a runtime observation.
 - Accumulate and verify treasure constraints.
 - Estimate opponent pressure from globally visible information.
 
-## v0.3 Safety Gates
+## v0.4 Safety Gates
 
 - Boss-order purchases and use are disabled.
 - Cross-map attacks are disabled even when `targetTeam` is present.
@@ -85,7 +86,8 @@ telemetry promotes them to a runtime observation.
   coordinates, day, and non-empty owned items.
 - Wall removal is never planned.
 - While own-side threats remain, every weapon keeps a controller even during rocket
-  cooldown. A cooling operator may use an adjacent carried item without moving.
+  cooldown. A cooling operator may use a carried item or move one safe cell while
+  remaining adjacent to its weapon; a firing operator cannot be borrowed.
 - A task's pioneer stays reserved during LLM/command waits; optional logistics
   cannot move it off the active task point.
 - Pre-night recall stays active for the rest of that day once triggered.
@@ -96,3 +98,26 @@ telemetry promotes them to a runtime observation.
 - Avoid risky travel when survival is uncertain.
 - Reserve emergency consumables when their expected value exceeds another upgrade.
 - Select defensive, score-race, or pressure mode from observed state.
+
+## Operating Cycle
+
+- The pioneer selects reachable tasks using each runtime deadline and the return
+  budget. A ten-turn task is not discarded merely because travel takes time before
+  acceptance. Task completion/expiry clears stale output and answers.
+- Generic bounded sandbox procedures inspect files, apply unique local edits and
+  run a checker, or fetch all pages of a loopback API and compute declared fields.
+  Actual checked output may be submitted directly. No answer cache crosses tasks.
+- Economy workers retain a mine while its return per travel/collection/sale turn
+  remains competitive. Default batches are ten items, with earlier sale at six
+  when working capital or recall requires it. Depletion causes replanning.
+- A carrier commits to a basket of up to three destinations, observes inventory
+  after purchase, and delivers before reprioritizing. Expired trips recover.
+  Emergency money is available for critical buildings, not optional upgrades.
+- Live vendor prices govern cash decisions. Only explicit official news or an
+  interpretation tied to an actual source span creates a future window. Holding
+  stock requires developed defense and working capital; dates are never fixed
+  from previous matches. Folk clues do not change market prices.
+- Treasure preparation requires multiple known clue days, high confidence,
+  complete coordinates/time/items, an affordable shopping list and a safe route.
+  Night-only treasure is considered only after threats clear. False confidence
+  from an LLM remains a platform calibration risk.

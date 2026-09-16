@@ -50,6 +50,8 @@ class SyntheticReplayTests(unittest.TestCase):
             stats = run_synthetic_match(1300, side)
             self.assertEqual(stats.rounds, 1300)
             self.assertEqual(stats.invalid_responses, 0)
+            self.assertEqual(stats.dropped_actions, 0)
+            self.assertEqual(stats.failed_actions, 0)
             self.assertGreater(stats.active_rounds, 0)
             self.assertEqual(stats.final_weapon_count, 3)
             self.assertGreaterEqual(stats.minimum_gold, 0)

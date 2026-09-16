@@ -33,23 +33,36 @@ def summarize_events(events):
     """Bounded, identifier-free incident summary; compatible with v0.2 records."""
     actions, failures, errors = Counter(), Counter(), Counter()
     previous = {}
+    previous_round = None
     first_three = None
     first_wall = None
     first_night = None
     builds = []
     last = {}
+    boundaries, weapon_activity, commerce, task_reasons = [], Counter(), Counter(), Counter()
     for e in events:
         if e.get("event") != "turn":
             continue
         r = e.get("r")
         counts = Counter(u[1] for u in e.get("roles", []))
-        weapons = sum(counts[k] for k in ("rocket","railgun","gatling"))
+        weapons = e.get("readiness",{}).get("weapons",sum(counts[k] for k in ("rocket","railgun","gatling")))
+        walls = e.get("readiness",{}).get("walls",counts["wall"])
         if weapons == 3 and first_three is None:
             first_three = r
-        if counts["wall"] and first_wall is None:
+        if walls and first_wall is None:
             first_wall = r
         if e.get("phase") == "night" and first_night is None:
-            first_night = {"round":r,"weapons":weapons,"walls":counts["wall"],"base":e.get("station")}
+            first_night = {"round":r,"weapons":weapons,"walls":walls,"base":e.get("station")}
+        if isinstance(r,int) and (r-1)%130+1 in (70,71) and len(boundaries)<20:
+            boundaries.append({"round":r,"base":e.get("station"),"walls":walls,"gold":e.get("gold"),
+                               "units":[[u[1],u[2],u[3],u[4],u[7]] for u in e.get("roles",[]) if len(u)>=8 and u[1]!='wall']})
+        diagnostics=e.get("diagnostics",{})
+        task_reasons.update([diagnostics["taskReason"]] if diagnostics.get("taskReason") else [])
+        for item in diagnostics.get("weapons",[]):
+            if isinstance(item,list) and len(item)==3:
+                weapon_activity[str(item[0])+":"+str(item[1])+":"+str(item[2])] += 1
+        if previous_round is None or r != previous_round+1:
+            previous = {}  # Never pair feedback across missing telemetry turns.
         for actor, ok in e.get("results", {}).items():
             cmd = previous.get(str(actor))
             if cmd is None:
@@ -61,13 +74,18 @@ def summarize_events(events):
         commands = e.get("commands", [])
         for cmd in commands:
             actions[cmd[1]] += 1
+            if cmd[1] in ("sell","buy","use"):
+                commerce[cmd[1]+":"+cmd[2]] += max(cmd[3],1)
         errors.update(str(code) for code in e.get("errors", []))
         previous = {str(cmd[0]):cmd for cmd in commands}
+        previous_round = r
         last = {"round":r,"score":e.get("score"),"gold":e.get("gold"),"base":e.get("station"),
-                "weapons":weapons,"walls":counts["wall"]}
+                "weapons":weapons,"walls":walls}
     return {"firstThreeWeaponsRound":first_three,"firstWallRound":first_wall,
             "firstNight":first_night,"last":last,"actions":dict(actions),
-            "failedActions":dict(failures),"errorCodes":dict(errors),"buildResults":builds}
+            "failedActions":dict(failures),"errorCodes":dict(errors),"buildResults":builds,
+            "dayNightBoundaries":boundaries,"weaponActivity":dict(weapon_activity),
+            "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons)}
 
 
 def main() -> None:
@@ -85,10 +103,15 @@ def main() -> None:
     failed = 0
     events = []
     for line in iter_lines(args.log, max_bytes):
-        if PREFIX not in line:
-            continue
         try:
-            event = decode_event(line)
+            if PREFIX in line:
+                event = decode_event(line)
+            elif line.lstrip().startswith("{"):
+                event = json.loads(line)
+                if not isinstance(event,dict) or event.get("event") not in {"turn","checkpoint"}:
+                    continue
+            else:
+                continue
         except ValueError:
             failed += 1
             continue

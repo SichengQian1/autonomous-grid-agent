@@ -6,6 +6,8 @@ from itertools import permutations
 from .actions import Action, ActionType
 from .geometry import Pos
 from .models import Robot, Turn, Unit
+from .grid import OccupancyGrid, distance_field, interaction_cells
+from .defense import build_defense_layout
 from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET
 
 
@@ -27,18 +29,25 @@ ROBOT_ATTACK = {
 class ControllerAssignment:
     weapon: Unit
     controller: Unit
+    control_pos: Pos | None = None
 
 
 def assign_controllers(turn: Turn, weapons: tuple[Unit, ...]) -> tuple[ControllerAssignment, ...]:
-    available = tuple(sorted((r for r in turn.controllable if r.pos is not None), key=lambda r:r.unit_id))
+    available = tuple(sorted((r for r in turn.controllable if r.pos is not None), key=lambda r:r.unit_id))[:3]
     ordered = tuple(sorted((w for w in weapons if w.pos is not None), key=lambda w:(w.role_type != ROLE_ROCKET,w.unit_id)))[:len(available)]
     if not ordered:
         return ()
+    layout = build_defense_layout(turn)
+    slots = dict(zip(layout.weapon_sites[:3], layout.controller_sites)) if len(layout.controller_sites) == 3 else {}
+    grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in available))
+    maps = {r.unit_id: distance_field(grid, (r.pos,)) for r in available}
+    goals = {w.unit_id: ((slots[w.pos],) if w.pos in slots else interaction_cells(grid, w.pos)) for w in ordered}
     def cost(roles):
-        distances = [max(0, r.pos.distance_to(w.pos)-1) for w,r in zip(ordered,roles)]
-        return sum(d > 0 for d in distances), max(distances), sum(distances), tuple(r.unit_id for r in roles)
+        distances = [min((maps[r.unit_id].get(p, 10000) for p in goals[w.unit_id]), default=10000)
+                     for w,r in zip(ordered,roles)]
+        return sum(d >= 10000 for d in distances), max(distances), sum(distances), tuple(r.unit_id for r in roles)
     chosen = min(permutations(available,len(ordered)),key=cost)
-    return tuple(ControllerAssignment(w,r) for w,r in zip(ordered,chosen))
+    return tuple(ControllerAssignment(w,r,slots.get(w.pos)) for w,r in zip(ordered,chosen))
 
 
 def controllers_needed(weapons: tuple[Unit, ...], robots: tuple[Robot, ...]) -> int:

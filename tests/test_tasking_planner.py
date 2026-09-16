@@ -166,7 +166,7 @@ class TaskStateTests(unittest.TestCase):
         self.assertEqual(manager.phase, TaskPhase.FAILED)
         self.assertEqual(plan.prompt, "")
 
-    def test_successful_exact_task_answer_can_be_reused(self) -> None:
+    def test_same_task_text_does_not_reuse_an_old_dynamic_answer(self) -> None:
         state = WorldState()
         completed_raw = synthetic_turn(round_no=20)
         completed_raw["phaseTask"] = ""
@@ -184,7 +184,8 @@ class TaskStateTests(unittest.TestCase):
         active_raw["phaseTask"] = "same task"
         active = Turn.from_raw(active_raw)
         plan = manager.plan(active, state, LlmBudget(), DEFAULT_CONFIG, active.team_our.unit(2))
-        self.assertEqual(plan.action.task_answer, "known-answer")
+        self.assertIsNone(plan.action)
+        self.assertTrue(plan.prompt)
 
 
 class TreasureTests(unittest.TestCase):

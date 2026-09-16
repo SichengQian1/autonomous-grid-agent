@@ -36,7 +36,7 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
     # yellow wall cells are distance 2.  Normalized threat is from positive x.
     weapon_norm = (
         Pos(xmin - 1, ymin - 1),
-        Pos(xmin, ymin - 1),
+        Pos(xmin - 1, ymin),
         Pos(xmin - 1, ymax + 1),
         Pos(xmin, ymax + 1),
         Pos(xmax, ymin - 1),
@@ -69,11 +69,9 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         return turn.map_info.contains(raw) and pos not in normalized_station and pos not in neutral
 
     rear_lanes = (mid_y, min(mid_y + 1, ymax))
-    corridor_candidates = tuple(
-        Pos(x, y)
-        for x in (xmin - 1, xmin - 2)
-        for y in rear_lanes
-    )
+    # Two permanent OUTER gates; retain one inner passage above the railgun.
+    # Reserving both inner cells previously pushed the middle gun onto a flank.
+    corridor_candidates = tuple(Pos(xmin - 2, y) for y in rear_lanes) + (Pos(xmin - 1, ymax),)
     corridor_norm = tuple(pos for pos in corridor_candidates if legal_normalized(pos))
     # On an unexpectedly edge-hugging map retain a two-cell side opening.  This
     # is a compatibility fallback, not a second side-specific strategy.
@@ -175,12 +173,21 @@ def _controller_sites(
     rear_corridor: tuple[Pos, ...],
     wall_sites: tuple[Pos, ...] = (),
 ) -> tuple[Pos, ...]:
-    blocked = {cell for unit in turn.team_our.roles + turn.team_enemy.roles for cell in unit.footprint()}
+    blocked = {cell for unit in turn.team_our.roles + turn.team_enemy.roles
+               if not unit.is_human for cell in unit.footprint()}
     blocked.update(zone.pos for zone in turn.map_info.zones if zone.pos is not None)
     blocked.update(weapon_sites[:3])
     blocked.update(wall_sites)
     result: list[Pos] = []
     corridor = set(rear_corridor)
+    if len(weapon_sites) >= 3:
+        norm = [turn.coordinate_frame.normalize(p) for p in weapon_sites[:3]]
+        if len({p.x for p in norm}) == 1:
+            low, middle, high = norm
+            slots = (Pos(low.x-1, middle.y), Pos(middle.x, middle.y+1), Pos(high.x-1, high.y-1))
+            raw = tuple(turn.coordinate_frame.denormalize(p) for p in slots)
+            if len(set(raw)) == 3 and all(turn.map_info.contains(p) and p not in blocked for p in raw):
+                return raw
     for weapon in weapon_sites[:3]:
         candidates = [
             pos for pos in weapon.neighbours()
