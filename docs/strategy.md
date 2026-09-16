@@ -24,7 +24,7 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.7 primary composition: two rocket launchers and one railgun.
+- v0.8 primary composition: two rocket launchers and one railgun.
 - Keep two railguns and one rocket launcher as the first comparison.
 - Place all three preferred weapons on the rear edge of the legal weapon ring,
   with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
@@ -169,3 +169,17 @@ telemetry promotes them to a runtime observation.
   not proof of correctness. Ordinary script/inspection output still requires synthesis.
 - Command count is bounded at eight. A live runtime task phase permits completion at
   the estimated deadline; an inactive phase clears evidence. Submission count remains three.
+
+## v0.8 Task and Funding Candidate
+
+Generic computed JSON requires a field/type contract and independently executed
+assertions before fast submission. Provided repair checkers and bounded complete-page
+API procedures retain direct-result transport. An unverified but structurally valid
+computed candidate may be submitted once at the deadline for possible partial credit.
+Task assertions and contracts can still be wrong; judge acceptance is authoritative.
+
+After basic level-two development, protect funds for key front walls, the first
+level-three rocket from day three, key level-three front walls from day four, then
+the other rocket. Critical maintenance takes precedence. Use actual shop prices;
+sell personal stock that closes a funding gap and do not speculate while underfunded.
+These timing targets remain configurable hypotheses requiring multi-match calibration.

@@ -7,10 +7,12 @@ from __future__ import annotations
 import base64
 import json
 import zlib
+import inspect
+from .task_answers import shape_error
 
 
 # Kept self-contained because the task sandbox is separate from the HTTP process.
-SANDBOX_PROGRAM = r'''
+SANDBOX_PROGRAM = inspect.getsource(shape_error) + r'''
 import json, os, subprocess, time, urllib.request, urllib.parse
 from pathlib import Path
 started = time.monotonic()
@@ -27,6 +29,38 @@ def field(value, path):
     for key in path.split(".") if path else []:
         value = value[int(key)] if isinstance(value, list) else value[key]
     return value
+def inventory():
+    files = []
+    for directory, dirs, names in os.walk(base):
+        remaining()
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.') and not (Path(directory)/d).is_symlink())
+        if len(Path(directory).relative_to(base).parts) >= 5: dirs[:] = []
+        for name in sorted(names):
+            p = Path(directory)/name
+            if p.is_file() and not p.is_symlink(): files.append(str(p.relative_to(base)))
+            if len(files) >= 100: return files
+    return files
+def execute(argv, cwd, extra_env=None):
+    import threading, signal
+    env = dict(os.environ)
+    if extra_env: env.update(extra_env)
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, start_new_session=True)
+    def stop():
+        try: os.killpg(proc.pid,signal.SIGKILL) if os.name=='posix' else proc.kill()
+        except ProcessLookupError: pass
+    chunks=[]
+    def read_output():
+        chunks.append(proc.stdout.read(12001))
+        if len(chunks[0])>12000: stop()
+    reader=threading.Thread(target=read_output,daemon=True); reader.start()
+    try: code=proc.wait(timeout=min(8,remaining()))
+    except (subprocess.TimeoutExpired, TimeoutError):
+        stop(); proc.wait(); raise TimeoutError('check_timeout')
+    reader.join(timeout=0.2)
+    if reader.is_alive(): stop(); reader.join(timeout=0.2)
+    text=(chunks[0] if chunks else b'').decode(errors='replace')
+    return code,text
 def run():
     kind = options["kind"]
     if kind == "inspect":
@@ -48,20 +82,32 @@ def run():
             docs = docs[:1]
             nearby = [p for p in files if p.is_relative_to(parent)]
         else:
-            if requested: return {"ok":False,"status":"task_document_missing"}
+            if requested: return {"ok":False,"status":"task_document_missing","files":inventory(),"workspace":".","root":str(base)}
             parent=inside(options.get("cwd","."))
             nearby = [p for p in files if p.is_relative_to(parent)]
+        explicit = []
+        for name in options.get('paths',[])[:4]:
+            p=inside(name)
+            if not p.is_file(): p=inside(str(parent.relative_to(base)/name))
+            if p.is_file() and p not in explicit: explicit.append(p)
+        docs = explicit + [p for p in docs if p not in explicit]
         docs += [p for p in nearby if p.name.lower() in ("readme.md", "spec.md", "api_docs.md", "task.md") and p not in docs]
-        docs += [inside(p) for p in options.get("paths",[])[:4] if inside(p).is_file() and inside(p) not in docs]
         docs += [p for p in nearby if p.suffix==".py" and p.stat().st_size<6000 and p not in docs][:3]
         if not docs: docs = [p for p in files if p.suffix.lower() in (".md", ".txt", ".json")][:5]
         budget, output = 11000, []
         for p in docs[:6]:
-            with p.open(errors="replace") as handle: text = handle.read(min(4000,budget))
-            output.append({"path":str(p.relative_to(base)),"text":text})
+            name = str(p.relative_to(base))
+            offset = max(0, min(100000, int(options.get('offsets',{}).get(name,0))))
+            with p.open(errors="replace") as handle:
+                handle.read(offset)
+                chunk = handle.read(min(6000,budget)+1)
+            text = chunk[:min(6000,budget)]
+            output.append({"path":name,"text":text,"offset":offset,
+                           "next_offset":offset+len(text),"complete":len(chunk)==len(text)})
             budget -= len(text)
             if budget <= 0: break
-        return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]],"workspace":str(parent.relative_to(base))}
+        return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]],
+                "workspace":str(parent.relative_to(base)),"root":str(base)}
     if kind in ("repair", "script", "python"):
         edits = options.get("edits", []) if kind == "repair" else []
         if not isinstance(edits,list) or len(edits)>8: raise ValueError("edit_limit")
@@ -83,30 +129,61 @@ def run():
         else: argv=["bash","-c",options["script"]]
         if not isinstance(argv,list) or not argv or not all(isinstance(a,str) for a in argv): raise ValueError("check_shape")
         if argv[0] not in ("python3","python","bash","sh","make","java"): raise ValueError("check_program")
-        # Drain at most the output allowance; kill the process group on excess.
-        import threading, signal
-        proc = subprocess.Popen(argv,cwd=inside(options.get("cwd",".")),stdout=subprocess.PIPE,stderr=subprocess.STDOUT,start_new_session=True)
-        def stop():
-            try: os.killpg(proc.pid,signal.SIGKILL) if os.name=="posix" else proc.kill()
-            except ProcessLookupError: pass
-        chunks=[]
-        def read_output():
-            chunks.append(proc.stdout.read(12001))
-            if len(chunks[0])>12000: stop()
-        reader=threading.Thread(target=read_output,daemon=True); reader.start()
-        try: code=proc.wait(timeout=min(8,remaining()))
-        except subprocess.TimeoutExpired:
-            stop(); proc.wait(); raise TimeoutError("check_timeout")
-        reader.join(timeout=0.2)
-        if reader.is_alive(): stop(); reader.join(timeout=0.2)
-        text=(chunks[0] if chunks else b"").decode(errors="replace")
+        cwd = inside(options.get('cwd','.'))
+        code,text = execute(argv,cwd)
         if len(text)>12000: return {"ok":False,"status":"check_truncated","output":text[:12000]}
-        if code: return {"ok":False,"status":"check_failed","exitCode":code,"output":text[:12000]}
+        if code:
+            result={"ok":False,"status":"check_failed","exitCode":code,"output":text[:8000]}
+            if 'FileNotFoundError' in text or 'No such file' in text:
+                result.update(files=inventory(),workspace=str(cwd.relative_to(base)),root=str(base))
+            return result
         if kind != "repair" and options.get("submit_result") is not True:
             return {"ok":True,"status":"script_ok","output":text}
-        try: result = json.loads(text.strip().splitlines()[-1])
-        except (ValueError,IndexError): return {"ok":False,"status":"check_not_structured","output":text}
-        return {"ok":True,"checked":kind=="repair","computed":kind!="repair","answer":field(result,options.get("answer_path",""))}
+        try:
+            if options.get('answer_format') == 'text' and kind == 'repair':
+                import re
+                pattern=options.get('answer_pattern','')
+                if not isinstance(pattern,str) or not 0<len(pattern)<=300: raise ValueError('answer_pattern')
+                matches=re.findall(pattern,text)
+                if len(matches)!=1 or not isinstance(matches[0],str): raise ValueError('ambiguous_answer')
+                result=matches[0]
+            else:
+                result=json.loads(text.strip().splitlines()[-1],parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
+            answer=field(result,options.get('answer_path',''))
+        except (ValueError,IndexError,KeyError,TypeError):
+            return {"ok":False,"status":"check_not_structured","output":text}
+        required=options.get('required')
+        problem=shape_error(answer,required) if required is not None else ''
+        if problem: return {'ok':False,'status':'answer_schema','reason':problem,'output':text}
+        verified=False
+        if kind != 'repair' and options.get('verify'):
+            verifier=options['verify']
+            if not isinstance(verifier,str) or len(verifier)>6000: raise ValueError('verify_shape')
+            import ast
+            tree=ast.parse(verifier)
+            checks=[node for node in ast.walk(tree) if isinstance(node,ast.Assert)
+                    and any(isinstance(n,ast.Name) and n.id=='answer' for n in ast.walk(node.test))]
+            if not checks:
+                return {'ok':False,'status':'verification_missing_assert'}
+            class CountChecks(ast.NodeTransformer):
+                def visit_Assert(self,node):
+                    if node in checks:
+                        return [ast.parse('_task_checks[0] += 1').body[0],node]
+                    return node
+            tree=ast.fix_missing_locations(CountChecks().visit(tree))
+            prelude='import json,os\nanswer=json.loads(os.environ["TASK_CANDIDATE_JSON"])\n_task_checks=[0]\n'
+            source=prelude+ast.unparse(tree)+'\nprint(json.dumps({"executed_checks":_task_checks[0]}))\n'
+            status,output=execute(['python3','-c',source],cwd,
+                                  {'TASK_CANDIDATE_JSON':json.dumps(answer,allow_nan=False)})
+            if status or len(output)>12000:
+                return {'ok':False,'status':'verification_failed','exitCode':status,'output':output[:6000]}
+            try: check_count=json.loads(output.strip().splitlines()[-1])['executed_checks']
+            except (ValueError,IndexError,KeyError,TypeError): check_count=0
+            if not isinstance(check_count,int) or check_count<1:
+                return {'ok':False,'status':'verification_missing_assert'}
+            verified=not shape_error(answer,required)
+        return {'ok':True,'checked':kind=='repair' or verified,'computed':kind!='repair',
+                'answer':answer,'schema_pass':bool(required) and not problem}
     if kind == "api":
         url = options["url"]
         parts = urllib.parse.urlsplit(url)
@@ -160,15 +237,35 @@ def run():
                 selected=(min if op=="min_by" else max)(records,key=lambda r:field(r,spec["path"]))
                 answer[name]=field(selected,spec["value_path"])
             else: raise ValueError("unknown_aggregate")
-        return {"ok":True,"checked":True,"answer":answer,"count":len(records)}
+        required=options.get('required')
+        problem=shape_error(answer,required) if required is not None else ''
+        if problem: return {'ok':False,'status':'answer_schema','reason':problem,'count':len(records)}
+        return {"ok":True,"checked":True,"answer":answer,"count":len(records),
+                'schema_pass':bool(required) and not problem}
     raise ValueError("unknown_procedure")
 try:
     result=run()
 except Exception as error:
     result={"ok":False,"status":type(error).__name__}
+    if isinstance(error,FileNotFoundError):
+        try: result.update(files=inventory(),workspace=str(options.get('cwd','.')),root=str(base))
+        except TimeoutError: pass
     if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate"}:
         result["reason"]=str(error)
-print(json.dumps({"procedure_result":result},ensure_ascii=False))
+def render(): return json.dumps({'procedure_result':result},ensure_ascii=False)
+# Keep the envelope parseable; mark omitted document tails for a targeted read.
+while len(render())>15000:
+    if result.get('files'):
+        result['files'].pop(); result['files_truncated']=True
+    elif result.get('documents') and any(len(d['text'])>256 for d in result['documents']):
+        doc=max(result['documents'],key=lambda d:len(d['text']))
+        doc['text']=doc['text'][:len(doc['text'])//2]
+        doc['complete']=False; doc['next_offset']=doc.get('offset',0)+len(doc['text'])
+    elif len(result.get('output',''))>256:
+        result['output']=result['output'][:len(result['output'])//2]; result['output_truncated']=True
+    else:
+        result={'ok':False,'status':'check_truncated'}; break
+print(render())
 '''
 
 

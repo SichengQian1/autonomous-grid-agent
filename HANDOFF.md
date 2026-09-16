@@ -84,6 +84,7 @@ After a change:
 - `solution/combat.py`: controllers, release levels, and projected target allocation.
 - `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
 - `solution/task_programs.py`: generic bounded sandbox procedures.
+- `solution/task_answers.py`: answer contracts and canonical rejection fingerprints.
 - `solution/task_context.py`: bounded per-task documents, workspace and execution evidence.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
@@ -94,6 +95,82 @@ recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. A
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-16 - v0.8 task verification, recovery and development funding
+
+Evidence and scope:
+
+- Started from clean codex/v0 at eebab3dbaa9ad8aae9a2748b629a6d565bd31092.
+  User approved task-system and money-system improvements and standing publication.
+- Seven returned runs: 42 tasks, 7 full completions, 17 partial settlements, 18 zero
+  rewards; mean task gold about 119 per run. Fifteen tasks never submitted and twenty
+  encountered missing-file categories. Partial settlement is counted at task end,
+  including timeouts. Exact failing paths/programs are unavailable in sanitized logs.
+- No third-level weapons/walls observed. Last supplied records still contain bases;
+  no final-score or exact destruction claim. Source logs and analysis remain private.
+
+Changes:
+
+1. Keep repair/check and API fast submission; generic computed JSON now needs a
+   field/type contract plus separately executed candidate-referencing assertions.
+   Solver and verifier share one bounded sandbox call. Non-executed assertions,
+   missing fields, wrong types and failed verification cannot produce a checked answer.
+   Contracts/checks can still be mistaken; they are not the official judge.
+2. Mark document truncation and support bounded continuation. Return directory/file
+   evidence on missing paths; support workspace-relative source inspection. Envelopes
+   remain parseable under output limits. Real text checker results can be extracted
+   using one unique pattern; no copied proof or answer values.
+3. Retain failed-program fingerprints, reject unchanged failed programs and rejected
+   answers, and seed old-output signatures at acceptance. Preserve task context during
+   recovery; clear it between tasks. Bound steps by timeout and reserve finishing time.
+   Near deadline, a structurally valid computed candidate may be submitted for partial
+   credit, but a failed latest execution cannot recycle an old candidate.
+4. Continue development savings through key level-two front walls, the first
+   level-three rocket from day three, key level-three walls from day four, then the
+   other rocket. Actual shop items/prices and carried vouchers determine funds.
+   Critical structures outrank development purchases. Dates are tunable hypotheses.
+5. Urgent liquidation counts this worker's inventory, not all workers' combined
+   holdings. Underfunded development suppresses speculative waiting for higher prices.
+6. Telemetry adds stages, schema/check status and rejection counts without content.
+   Read-only log summaries identify end-of-task full/partial/zero observations and
+   mark mixed income rather than equating every failed task with zero reward.
+
+Verification:
+
+- Six minimal regressions failed on v0.7 before implementation; all pass now.
+- 192 unittest cases passed on Python 3.14.6, including both 1300-turn synthetic
+  sides with zero invalid responses, dropped/failed actions and planner failures.
+- Actual subprocess tests cover randomized computation/verification, failed and
+  unexecuted checks, scalar zero answers, text proof extraction, document tails,
+  missing-file evidence, stale output rejection, duplicates and deadline recovery.
+  Solver/check programs are prescribed test inputs, not a live LLM benchmark.
+- Funding regressions cover advanced vouchers at current prices, critical repair
+  priority, front-wall milestones, personal-stock liquidation and forecast suppression.
+- Source and clean-archive HTTP checks passed on both sides, including malformed JSON,
+  null/list fallbacks and 71-turn restricted construction. Three weapons, 12/13 walls,
+  three controllers in place; maximum observed HTTP latency 140.9 ms.
+- All 26 runtime modules and embedded sandbox parse under Python 3.11 syntax.
+  Exact Python 3.11.10 execution remains unverified locally.
+- Archive has 27 runtime files (entrypoint plus modules), matching source bytes;
+  no reference data, tests, analysis, logs or credentials are included.
+- The new read-only task outcome summary reproduces all 7 full, 17 partial and
+  18 zero-reward endings across the seven old logs, totaling 832 observed task gold.
+
+Release:
+
+- `submissions/v0/submission-v0.8.tar.gz`
+- SHA-256: `f8c9f8ae7a39064a16ecf189250cfc21a80dd94594d880cd794d246f57886af8`
+- Publication to codex/v0 is covered by standing authorization. No official match
+  or platform submission has been run.
+
+Next calibration:
+
+- Compare full/partial/zero results, no-submit tasks, missing-file retries and first-night
+  task gold. Four tasks/320 gold before night is a target, not a verified v0.8 result.
+- Check advanced purchase-to-use timing, critical wall upkeep and whether savings
+  reduce maintenance at a dangerous time. Task and funding improvements do not prove
+  better match survival or a particular score. No platform upload or match was started.
+
 
 ### 2026-09-16 - v0.7 delivery access, development savings and task execution
 

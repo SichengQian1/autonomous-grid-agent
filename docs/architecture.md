@@ -71,6 +71,7 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use
 - `combat.py`: controller release and target allocation
 - `tasking.py`: task recovery, LLM coordination, and evidence-gated treasure state
+- `task_answers.py`: bounded answer field/type contracts and canonical rejection fingerprints
 - `task_context.py`: bounded per-task documents, workspace, attempted programs, and execution evidence
 - `task_programs.py`: bounded sandbox inspection, repair/check, and API aggregation procedures
 - `opponent.py`: global modes and Boss threshold evaluation

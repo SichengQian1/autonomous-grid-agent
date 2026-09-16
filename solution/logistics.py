@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 from .actions import Action, ActionType
-from .economy import DefenseBudget, next_development_target
+from .economy import DefenseBudget, next_development_target, upgrade_item
 from .models import Turn, Unit
 from .movement import MoveIntent
 from .grid import OccupancyGrid, distance_field, interaction_cells
@@ -110,7 +110,7 @@ class LogisticsManager:
                        or (o[1].role_type == ROLE_ROCKET and o[1].level == 1)]
         development=next_development_target(turn,config)
         development_id=development.unit_id if development else None
-        development_item="StationUpgradeVoucher1" if development and development.role_type==ROLE_STATION else "WeaponUpgradeVoucher1"
+        development_item=upgrade_item(development)
         owned_development=any(development_item in r.backpack for r in turn.controllable)
         reserve=next((i.price for i in turn.weapon_shop if i.name==development_item),0) if development and not owned_development else 0
         first_levels = any(u.is_weapon and u.level == 1 for u in turn.team_our.roles)
@@ -120,6 +120,7 @@ class LogisticsManager:
             if first_levels and target.is_weapon and target.level == 1: score += 3000
             if name == "WallFixer" and target.health < estimated_max_health(target)//3: score += 3000
             if target.role_type != ROLE_WALL and critically_damaged(target): score += 6000
+            if critically_damaged(target): score += 30000
             return score - distance(target)*20
         options = sorted((o for o in options if distance(o[1]) < 10000), key=value, reverse=True)
         self.orders = [order for order in self.orders if any(

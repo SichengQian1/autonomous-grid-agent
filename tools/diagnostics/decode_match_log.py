@@ -91,7 +91,43 @@ def summarize_events(events):
             "dayNightBoundaries":boundaries,"weaponActivity":dict(weapon_activity),
             "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons),
             "taskCommandCategoryTurns":dict(command_categories),"taskRejectReasonTurns":dict(rejection_reasons),
-            "economyActivityTurns":dict(economy_activity)}
+            "economyActivityTurns":dict(economy_activity),"taskOutcomes":task_outcomes(events)}
+
+
+def task_outcomes(events):
+    """Report end-of-task credits, including timeout settlement, without answers.
+
+    Concurrent economic actions or missing turns prevent reward attribution.
+    Score changes may include combat; only matching gold/score gains indicate a
+    partial settlement. This is observational accounting, not judge feedback.
+    """
+    previous=None; start=None; submissions=0; result=[]
+    for event in events:
+        if event.get('event')!='turn': continue
+        if previous and event.get('r')==previous.get('r',-2)+1:
+            now=event.get('diagnostics',{}); old=previous.get('diagnostics',{})
+            full=now.get('taskCompleted',0)-old.get('taskCompleted',0)
+            failed=now.get('taskFailed',0)-old.get('taskFailed',0)
+            if full+failed>0:
+                gold=event.get('gold',0)-previous.get('gold',0)
+                score=event.get('score',0)-previous.get('score',0)
+                mixed=any(c[1] in ('sell','buy','summonTreasure') or
+                          (c[1]=='build' and c[2]!='wall') for c in previous.get('commands',[]))
+                outcome='full' if full>0 else 'unresolved'
+                if not full and not mixed:
+                    if gold>0 and score==gold: outcome='partial_observed'
+                    elif gold==0 and score==0: outcome='zero_observed'
+                if len(result)<64:
+                    result.append({'start':start,'end':event['r'],'outcome':outcome,
+                        'submissions':submissions,'goldDelta':gold,'scoreDelta':score,'mixedIncome':mixed})
+                start=None;submissions=0
+        elif previous:
+            start=None;submissions=0
+        for command in event.get('commands',[]):
+            if command[1]=='acceptTask':start=event.get('r');submissions=0
+            elif command[1]=='submitAnswer':submissions+=1
+        previous=event
+    return result
 
 
 def main() -> None:

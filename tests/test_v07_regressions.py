@@ -67,7 +67,8 @@ class V07OperatingTests(unittest.TestCase):
             work=Path(root,'randomized','work');work.mkdir(parents=True)
             (work/'numbers.json').write_text(json.dumps(values))
             raw=synthetic_turn(round_no=12)
-            raw['llmResp']=json.dumps({'python':'import json\nfrom pathlib import Path\nvalues=json.loads(Path("numbers.json").read_text())\nprint(json.dumps({"total":sum(values)}))','submit_result':True})
+            raw['llmResp']=json.dumps({'python':'import json\nfrom pathlib import Path\nvalues=json.loads(Path("numbers.json").read_text())\nprint(json.dumps({"total":sum(values)}))','submit_result':True,
+                'required':{'total':'integer'},'verify':'from pathlib import Path\nvalues=json.loads(Path("numbers.json").read_text())\nassert answer["total"] == sum(values)\nassert len(values) == 7'})
             turn=Turn.from_raw(raw);state=WorldState();state.ingest(turn)
             manager=TaskManager(last_generation=state.generation,phase=TaskPhase.WAITING_LLM,command_steps=1)
             manager.context.workspace='randomized/work';manager.context.resolved=True
@@ -80,7 +81,7 @@ class V07OperatingTests(unittest.TestCase):
             turn=Turn.from_raw(raw)
             submit=manager.plan(turn,state,LlmBudget(),DEFAULT_CONFIG,turn.team_our.unit(2))
             self.assertEqual(json.loads(submit.action.task_answer),{'total':sum(values)})
-            self.assertEqual(manager.diagnostic,'procedure_computed')
+            self.assertEqual(manager.diagnostic,'procedure_checked')
             self.assertFalse(submit.prompt)
 
     def test_failed_or_non_json_computation_is_not_submitted(self):

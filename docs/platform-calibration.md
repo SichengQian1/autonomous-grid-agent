@@ -113,3 +113,24 @@ This is a diagnostic counterfactual, not an official replay or new match outcome
 The new release also changes upgrade saving and task execution/submission handling.
 Typed Python, workspace-relative repair and final-JSON transport are tested locally;
 real LLM accuracy, next-wave survival and any score increase remain unverified.
+
+## v0.7 Returned Evidence and v0.8 Boundary
+
+Seven sequences contain 42 task accepts: 7 full completions, 17 observed partial
+settlements and 18 zero-reward endings. Partial rewards can arrive at timeout;
+counting only the turn after submission misses them. Fifteen tasks never submit;
+twenty have missing-file categories. Commands and paths are absent, so exact path
+causes remain unknown. No level-three weapon or wall is observed in these runs.
+All last records still contain a base; they do not prove final score or loss turn.
+
+v0.8 validates generic computed answers against a field/type contract and runs
+assertions separately in the same sandbox call before fast submission. It supports
+text checker extraction, bounded document continuation, directory evidence on file
+errors, duplicate rejection, and deadline partial-credit candidates. Contracts and
+verification code are still generated from task evidence and can share a mistaken
+interpretation; passing them is not the same as judge acceptance.
+
+Protected development funds now continue beyond basic level two, and urgent sale
+decisions use personal inventory. Advanced rocket/front-wall timing is configurable,
+not an established winning build order. Calibration must track task correctness,
+pre-night income, procurement-to-use delay, maintenance and survival on both sides.

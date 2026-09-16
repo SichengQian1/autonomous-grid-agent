@@ -30,6 +30,25 @@ class BuildObjective:
     priority: int
 
 
+def upgrade_item(target: Unit | None) -> str:
+    if target is None: return ''
+    prefix = {'station':'Station', 'wall':'Wall'}.get(target.role_type, 'Weapon')
+    return f'{prefix}UpgradeVoucher{target.level}'
+
+
+def front_walls(turn: Turn) -> list[Unit]:
+    station=turn.team_our.station()
+    if station is None: return []
+    frame=turn.coordinate_frame
+    cells=[frame.normalize(p) for p in station.footprint()]
+    if not cells: return []
+    front=max(p.x for p in cells)+2
+    center=sum(p.y for p in cells)/len(cells)
+    return sorted((u for u in turn.team_our.roles if u.role_type=='wall' and u.alive
+                   and u.pos is not None and frame.normalize(u.pos).x==front),
+                  key=lambda u:(abs(frame.normalize(u.pos).y-center),u.health,u.unit_id))
+
+
 def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
     """Protect one permanent defensive improvement from incidental spending."""
     if not config.protect_development_fund:
@@ -43,8 +62,18 @@ def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
     station=turn.team_our.station()
     if station is not None and station.level==1 and turn.day_index>=2:
         return station
-    return next(iter(sorted((w for w in weapons if w.level==1),
-                            key=lambda w:(w.role_type!="rocket",w.unit_id))),None)
+    basic=next(iter(sorted((w for w in weapons if w.level==1),
+                          key=lambda w:(w.role_type!="rocket",w.unit_id))),None)
+    if basic is not None: return basic
+    prices={item.name:item.price for item in turn.weapon_shop}
+    walls=front_walls(turn)[:config.second_day_front_upgrades]
+    targets=[]
+    if turn.day_index>=2: targets.extend(w for w in walls if w.level==1)
+    advanced=[w for w in rockets if w.level==2]
+    if turn.day_index>=config.advanced_rocket_day and advanced and not any(w.level>=3 for w in rockets): targets.append(advanced[0])
+    if turn.day_index>=config.advanced_wall_day: targets.extend(w for w in walls if w.level==2)
+    if turn.day_index>=config.advanced_rocket_day: targets.extend(advanced)
+    return next((u for u in targets if prices.get(upgrade_item(u),0)>0),None)
 
 
 def defense_budget(
@@ -222,12 +251,17 @@ class EconomyManager:
         can_wait=developed and turn.team_our.gold>=config.treasure_gold_reserve and budget.margin>3
         rising=can_wait and any(state.market.will_rise(n,turn.day_index) for n in inventory)
         development=next_development_target(turn,config)
-        item="StationUpgradeVoucher1" if development and development.role_type=="station" else "WeaponUpgradeVoucher1"
+        item=upgrade_item(development)
         cash_goal=next((i.price for i in turn.weapon_shop if i.name==item),100)
         if development is None and any(w.role_type=="rocket" and w.level>=2 for w in existing_weapons(turn)):
             cash_goal+=budget.emergency
-        team_stock=sum(prices.get(item,0) for r in turn.controllable for item in r.backpack)
-        urgent_cash=turn.team_our.gold<cash_goal<=turn.team_our.gold+team_stock
+        # One miner's actual sale must close the gap. Counting everybody's stock
+        # sent several workers on tiny sales that did not fund the purchase.
+        owned_upgrade=bool(item) and any(item in r.backpack for r in turn.controllable)
+        urgent_cash=not owned_upgrade and turn.team_our.gold<cash_goal<=turn.team_our.gold+value
+        if development is not None and not owned_upgrade and turn.team_our.gold<cash_goal:
+            can_wait=False
+            rising=False
         sale_stops=((vendor_goals,max(len(inventory),1)),)
         sale_cost=travel.cost(sale_stops)
         can_sell=count>0 and travel.fits(sale_stops)

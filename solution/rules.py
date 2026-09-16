@@ -101,6 +101,8 @@ class StrategyConfig:
     recall_traffic_buffer: int = 3
     second_day_front_upgrades: int = 3
     protect_development_fund: bool = True
+    advanced_rocket_day: int = 3
+    advanced_wall_day: int = 4
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
@@ -120,6 +122,8 @@ class StrategyConfig:
     task_command_output_limit: int = 16000
     task_response_wait: int = 3
     task_submit_limit: int = 3
+    task_finish_reserve: int = 2
+    task_partial_answer_turns: int = 1
     telemetry_byte_budget: int = 2 * 1024 * 1024
     telemetry_reserve_bytes: int = 256 * 1024
     mining_batch_size: int = 10
