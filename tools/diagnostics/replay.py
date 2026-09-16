@@ -24,6 +24,29 @@ from solution.actions import Decision
 from solution.validation import ActionValidator
 
 
+class EncryptedTurnLogError(ValueError):
+    """Input is an encrypted turn log rather than request JSONL."""
+
+
+def _request_payload(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        raise ValueError("record must be an object")
+    info = raw.get("turnlog")
+    if isinstance(info, dict) or ("ct" in raw and "tag" in raw):
+        raise EncryptedTurnLogError(
+            "encrypted turn log; decrypt with tools/diagnostics/decrypt_turnlog.py first"
+        )
+    if "request" in raw and "response" in raw:
+        payload = raw["request"]
+        if not isinstance(payload, dict):
+            raise ValueError("record must be an object")
+        return payload
+    meta = raw.get("meta")
+    if isinstance(meta, dict) and meta.get("truncated") and "roundNo" not in raw:
+        return None
+    return raw
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="local JSONL file, one request object per line")
@@ -52,17 +75,18 @@ def main() -> int:
                     break
                 digest.update(line)
                 raw = json.loads(line)
-                if not isinstance(raw, dict):
-                    raise ValueError("record must be an object")
+                payload = _request_payload(raw)
+                if payload is None:
+                    continue
                 started = time.monotonic()
                 try:
-                    response = engine.decide(raw)
+                    response = engine.decide(payload)
                     json.dumps(response)
                 except Exception:
                     failed += 1
                     continue
                 latencies.append((time.monotonic() - started) * 1000)
-                turn = Turn.from_raw(raw)
+                turn = Turn.from_raw(payload)
                 rounds.append(turn.round_no)
                 actions = tuple(a for a in engine.state.previous_actions if str(a.actor_id) in response["roleCommandMap"])
                 invalid += len(ActionValidator().validate(turn, Decision(actions)).issues)
@@ -70,6 +94,12 @@ def main() -> int:
                 counts["llm_requests"] += bool(response.get("prompt"))
                 counts["sandbox_requests"] += bool(response.get("executeCmd"))
                 error_codes.update(e.error_code for e in turn.errors)
+    except EncryptedTurnLogError:
+        print(
+            "Encrypted turn log; decrypt with tools/diagnostics/decrypt_turnlog.py first.",
+            file=sys.stderr,
+        )
+        return 2
     except (OSError, ValueError, TypeError):
         print("Input/config could not be read as bounded JSON. No source content was printed.", file=sys.stderr)
         return 2

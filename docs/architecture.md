@@ -64,6 +64,10 @@ The baseline is enabled through `BaselinePlanner`:
 - `planning.py`: shared gold/target reservations and incremental action validation.
 - `strategy.py`: day/night scheduling, return deadlines and safe night supply runs.
 - `configuration.py`: validated local JSON configuration.
+- `turnlog.py`: optional bounded per-turn request/response/decision envelopes
+  to a directory or stderr, written after the HTTP response.
+- `turncrypto.py`: stdlib-only ChaCha20 + HMAC-SHA256 authenticated encryption
+  with scrypt/PBKDF2 key derivation for turn logs.
 
 News replies are consumed before role decisions in either phase. Night release
 proofs are recomputed from committed attacks; controller pairing ranks the joint

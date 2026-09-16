@@ -13,6 +13,7 @@ if sys.version_info < (3, 11):
 from .engine import configure_engine, decide_payload
 from .configuration import load_config
 from .protocol import safe_response
+from .turnlog import TurnLogger
 
 
 LOGGER = logging.getLogger(__name__)
@@ -20,23 +21,29 @@ MAX_REQUEST_BYTES = 8 * 1024 * 1024
 SOCKET_READ_TIMEOUT_SECONDS = 4.5
 
 
-def decide(payload: dict[str, Any]) -> dict[str, Any]:
-    return decide_payload(payload)
+def decide(
+    payload: dict[str, Any],
+    meta_out: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return decide_payload(payload, meta_out)
 
 
 class RequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         response = safe_response()
+        meta: dict[str, Any] = {}
+        payload: dict[str, Any] | None = None
         try:
             self.connection.settimeout(SOCKET_READ_TIMEOUT_SECONDS)
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length < 0 or content_length > MAX_REQUEST_BYTES:
                 raise ValueError("request body size is invalid")
             raw_body = self.rfile.read(content_length)
-            payload = json.loads(raw_body.decode("utf-8"))
-            if not isinstance(payload, dict):
+            candidate_payload = json.loads(raw_body.decode("utf-8"))
+            if not isinstance(candidate_payload, dict):
                 raise TypeError("request body must be a JSON object")
-            candidate = decide(payload)
+            payload = candidate_payload
+            candidate = decide(payload, meta)
             if (
                 isinstance(candidate, dict)
                 and isinstance(candidate.get("roleCommandMap"), dict)
@@ -50,6 +57,23 @@ class RequestHandler(BaseHTTPRequestHandler):
             LOGGER.exception("request processing failed")
 
         self._write_json(response)
+        self._record_turn(payload, response, meta)
+
+    def _record_turn(
+        self,
+        payload: dict[str, Any] | None,
+        response: dict[str, Any],
+        meta: dict[str, Any],
+    ) -> None:
+        if payload is None:
+            return
+        turn_logger = getattr(self.server, "turn_logger", None)
+        if turn_logger is None:
+            return
+        try:
+            turn_logger.record(payload, response, meta)
+        except Exception:
+            LOGGER.warning("turn logging failed")
 
     def _write_json(self, response: dict[str, Any]) -> None:
         try:
@@ -89,8 +113,9 @@ def parse_port(arguments: list[str]) -> int:
     return port
 
 
-def serve(port: int) -> None:
+def serve(port: int, turn_logger: TurnLogger | None = None) -> None:
     with AgentServer(("0.0.0.0", port), RequestHandler) as server:
+        server.turn_logger = turn_logger
         server.serve_forever()
 
 
@@ -102,7 +127,7 @@ def main() -> None:
     )
     try:
         configure_engine(load_config())
-        serve(parse_port(sys.argv))
+        serve(parse_port(sys.argv), TurnLogger.from_env())
     except KeyboardInterrupt:
         LOGGER.info("server stopped")
 

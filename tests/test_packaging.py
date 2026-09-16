@@ -55,6 +55,38 @@ class PackagingTests(unittest.TestCase):
         build_archive(self.root, "frontline", other)
         self.assertEqual(first, other.read_bytes())
 
+    def test_embedded_log_key_enables_directory_and_stays_deterministic(self):
+        build_archive(self.root, "frontline", self.output, log_key="synthetic-key")
+        with tarfile.open(self.output) as archive:
+            main3 = archive.extractfile("CoreGeek/main3.py").read().decode()
+        self.assertIn('os.environ.setdefault("AGENT_TURN_LOG", str(ROOT / "logs"))', main3)
+        self.assertIn(
+            'os.environ.setdefault("AGENT_TURN_LOG_KEY", "synthetic-key")', main3
+        )
+        other = self.output.with_name("same-key.tar.gz")
+        build_archive(self.root, "frontline", other, log_key="synthetic-key")
+        self.assertEqual(self.output.read_bytes(), other.read_bytes())
+        third = self.output.with_name("other-key.tar.gz")
+        build_archive(self.root, "frontline", third, log_key='we"ird\\key')
+        self.assertNotEqual(self.output.read_bytes(), third.read_bytes())
+        with tarfile.open(third) as archive:
+            escaped = archive.extractfile("CoreGeek/main3.py").read().decode()
+        self.assertIn('AGENT_TURN_LOG_KEY", "we\\"ird\\\\key"', escaped)
+
+    def test_default_package_does_not_enable_turn_log(self):
+        build_archive(self.root, "frontline", self.output)
+        with tarfile.open(self.output) as archive:
+            main3 = archive.extractfile("CoreGeek/main3.py").read().decode()
+        self.assertNotIn("AGENT_TURN_LOG", main3)
+        self.assertNotIn("AGENT_TURN_LOG_KEY", main3)
+
+    def test_turn_log_flag_enables_plaintext_directory(self):
+        build_archive(self.root, "frontline", self.output, turn_log=True)
+        with tarfile.open(self.output) as archive:
+            main3 = archive.extractfile("CoreGeek/main3.py").read().decode()
+        self.assertIn('os.environ.setdefault("AGENT_TURN_LOG", str(ROOT / "logs"))', main3)
+        self.assertNotIn("AGENT_TURN_LOG_KEY", main3)
+
     def test_all_profiles_are_valid_in_isolated_runtime(self):
         for profile in PROFILES:
             with self.subTest(profile=profile):

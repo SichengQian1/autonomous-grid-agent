@@ -60,6 +60,46 @@ shared planning context.
 
 ## Change Log
 
+### 2026-09-16 - Per-turn request/response logging with optional encryption
+
+- Added `solution/turnlog.py`: opt-in per-turn JSON envelopes
+  `{"meta": ..., "request": ..., "response": ...}`. Unset/`off` disables
+  logging. `AGENT_TURN_LOG=<dir>` writes per-match
+  `match-<ts>-<seq>-<team>.jsonl` files (no stderr flood);
+  `AGENT_TURN_LOG=stderr` prints to the console. The HTTP response is written
+  before logging. Write failures degrade silently and never affect replies.
+  Files cap at 64 MiB per match.
+- Added `solution/turncrypto.py`: stdlib-only ChaCha20 (RFC 8439) +
+  HMAC-SHA256 encrypt-then-MAC. Setting `AGENT_TURN_LOG_KEY` encrypts every
+  record; each match file opens with a plaintext salt/KDF header, per-record
+  random nonces and sequence numbers resist reordering. scrypt is used for key
+  derivation with a PBKDF2 fallback. Records over 1 MiB are skipped while
+  encrypted; a configured-but-unusable key drops records instead of writing
+  plaintext. `tools/diagnostics/decrypt_turnlog.py` restores envelopes or bare
+  requests for replay.
+- `meta` summarizes each decision: round, latency, cache hits, rejection
+  reasons, new-match boundary, proposed actions, validator issues, accepted
+  count and prompt/command flags via a new optional `meta_out` parameter on
+  `AgentEngine.decide`/`decide_payload`/`main.decide` (all existing callers
+  unchanged).
+- `tools/diagnostics/replay.py` unwraps plaintext envelope lines and skips
+  truncation markers; encrypted files are rejected with a decrypt hint. Bare
+  request lines still work.
+- `turnlog` and `turncrypto` are in the packaging allowlist. Default packages
+  do not enable logging. `--log-key` / `--gen-log-key` embed an encrypted log
+  sink (`logs/` next to `main3.py`); `--turn-log` enables plaintext files.
+  The builder does not read `AGENT_TURN_LOG_KEY` from the environment. The key
+  exists only inside the generated archive, never in the repository. The
+  encryption layer is an original RFC 8439 implementation verified against the
+  standard test vector, not a vetted library.
+- Verification: 206 tests pass under Python 3.11.15, including env defaults,
+  stderr/file sinks, envelopes, match splitting, byte cap, fail-safe, meta
+  fields, HTTP response-before-log, replay compatibility, encrypted replay
+  rejection, the ChaCha20 RFC vector, encrypt/decrypt round trips, tamper and
+  wrong-key rejection, KDF fallback, the decrypt tool, and packaging opt-in
+  vs default-off. Local HTTP day/night smoke returned valid JSON with night
+  attacks. No push, upload or official match was performed.
+
 ### 2026-09-15 - Review and commit corner repairs
 
 - Reviewed the implementation against the corner-repair plan. Its 165 tests

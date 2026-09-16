@@ -69,7 +69,70 @@ python3.11 tools/diagnostics/replay.py local/turns.jsonl --limit 100
 ```
 
 Replay reads one request object per JSONL line and prints only aggregate metrics.
-It never executes emitted sandbox commands or sends requests to a platform.
+It also accepts turn-log envelopes (see below). It never executes emitted sandbox
+commands or sends requests to a platform.
+
+## Turn logging
+
+Turn logging is off unless `AGENT_TURN_LOG` is set. The HTTP response is written
+first; logging runs afterward and must not delay or fail the reply. Point the
+variable at a directory to write per-match files, or at `stderr` for console
+only:
+
+```bash
+AGENT_TURN_LOG=logs bash run.sh 8000
+AGENT_TURN_LOG=stderr bash run.sh 8000
+```
+
+Each match writes `match-<timestamp>-<seq>-<team>.jsonl` inside that directory;
+a new file starts when the team key changes or the round counter restarts.
+Every line is an envelope:
+
+```json
+{"meta": {"round": 12, "ms": 3.1, "cacheHit": false, "issues": []},
+ "request": {"roundNo": 12, "...": "..."},
+ "response": {"roleCommandMap": {"...": "..."}}}
+```
+
+`request` is the raw platform payload, `response` is the reply actually sent,
+and `meta` summarizes the decision: `round`, `ms` latency, `cacheHit` retries,
+`rejected`/`error` fallback reasons, `newMatch`, proposed `proposed` actions,
+validator `issues`, `accepted` count, and `prompt`/`cmd` flags. Files stop
+growing past 64 MiB per match. A directory sink does not also flood stderr.
+Set `AGENT_TURN_LOG=off` (or leave it unset) to disable logging. A missing
+directory or write failure never affects responses. The submission archive
+does not enable turn logs unless the package is built with `--turn-log` or a
+log key.
+
+### Encryption
+
+Set `AGENT_TURN_LOG_KEY` to encrypt every record:
+
+```bash
+AGENT_TURN_LOG=logs AGENT_TURN_LOG_KEY='passphrase' bash run.sh 8000
+```
+
+Each match file then starts with a plaintext header carrying a random salt and
+KDF parameters; every record is encrypted with ChaCha20 and authenticated with
+HMAC-SHA256 (encrypt-then-MAC, stdlib-only implementation). Console output is
+the same encrypted stream. Records larger than 1 MiB are skipped while
+encrypted, and if the key is configured but encryption is unavailable the
+record is dropped rather than written in plaintext. Without the key the log
+stays plaintext and a warning is printed at startup.
+
+Decrypt a file back into replayable envelopes (or bare requests):
+
+```bash
+AGENT_TURN_LOG_KEY='passphrase' python3.11 tools/diagnostics/decrypt_turnlog.py logs/match-XXX.jsonl > plain.jsonl
+AGENT_TURN_LOG_KEY='passphrase' python3.11 tools/diagnostics/decrypt_turnlog.py logs/match-XXX.jsonl --requests > requests.jsonl
+```
+
+Plaintext envelopes replay directly. Encrypted files are rejected until decrypted:
+
+```bash
+python3.11 tools/diagnostics/replay.py logs/match-20260915-120000.000-001-team.jsonl --limit 100
+python3.11 tools/diagnostics/replay.py plain.jsonl --limit 100
+```
 
 ## Build an upload package
 
@@ -101,6 +164,20 @@ The builder requires Python 3.11, checks syntax and isolated imports/configurati
 and verifies every archive member. It prints the package SHA256. Identical inputs
 produce identical bytes; successful builds replace an existing output atomically.
 New runtime modules must be added to `MODULES` in the builder.
+
+Turn logging stays off in the packaged program unless it is requested at
+build time. The packaged process cannot read custom environment variables, so
+embed a key when encrypted logs are wanted:
+
+```bash
+python3.11 tools/package_submission.py --log-key 'passphrase'
+python3.11 tools/package_submission.py --gen-log-key   # random key, printed once
+python3.11 tools/package_submission.py --turn-log      # plaintext files under logs/
+```
+
+The key is written into `main3.py` inside the archive only — never into the
+repository. The builder does not pick up `AGENT_TURN_LOG_KEY` from the shell
+environment; pass `--log-key` explicitly. Default packages do not write logs.
 
 The SDK's Python layout identifies `CoreGeek/main3.py` and Python 3.11.10. The
 archive uses `CoreGeek/` as its top-level directory. The PDF does not specify the

@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import secrets
 import tarfile
 import tempfile
 
@@ -22,9 +23,17 @@ MODULES = (
     "__init__", "actions", "ballistics", "combat", "configuration", "defense",
     "economy", "engine", "geometry", "layout", "main", "maintenance", "models",
     "navigation", "planning", "protocol", "resources", "rules", "state",
-    "strategy", "tasks", "validation",
+    "strategy", "tasks", "turncrypto", "turnlog", "validation",
 )
-ENTRY_POINT = b'''from pathlib import Path
+
+
+def entry_point(log_key: str | None, turn_log: bool = False) -> bytes:
+    extra = ""
+    if turn_log or log_key:
+        extra += 'os.environ.setdefault("AGENT_TURN_LOG", str(ROOT / "logs"))\n'
+    if log_key:
+        extra += f'os.environ.setdefault("AGENT_TURN_LOG_KEY", {json.dumps(log_key)})\n'
+    return f'''from pathlib import Path
 import os
 import sys
 
@@ -32,12 +41,11 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 # The upload always uses the configuration selected when building the archive.
 os.environ["AGENT_CONFIG"] = str(ROOT / "config" / "strategy.json")
-
-from solution.main import main
+{extra}from solution.main import main
 
 if __name__ == "__main__":
     main()
-'''
+'''.encode("utf-8")
 LAUNCHER = b'''#!/usr/bin/env bash
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -60,11 +68,16 @@ def read_source(root: Path, relative: str) -> bytes:
     return data
 
 
-def collect_files(root: Path, profile: str) -> dict[str, bytes]:
+def collect_files(
+    root: Path,
+    profile: str,
+    log_key: str | None = None,
+    turn_log: bool = False,
+) -> dict[str, bytes]:
     if profile not in PROFILES:
         raise ValueError("unknown strategy profile")
     files = {
-        "CoreGeek/main3.py": ENTRY_POINT,
+        "CoreGeek/main3.py": entry_point(log_key, turn_log=turn_log),
         "CoreGeek/run.sh": LAUNCHER,
     }
     for module in MODULES:
@@ -119,12 +132,18 @@ def verify_archive(path: Path, files: dict[str, bytes]) -> None:
                 raise ValueError("archive content verification failed")
 
 
-def build_archive(root: Path, profile: str, output: Path) -> tuple[str, int]:
+def build_archive(
+    root: Path,
+    profile: str,
+    output: Path,
+    log_key: str | None = None,
+    turn_log: bool = False,
+) -> tuple[str, int]:
     if sys.version_info[:2] != (3, 11):
         raise ValueError("build with Python 3.11 to match the target minor version")
     if not output.name.endswith(".tar.gz"):
         raise ValueError("output filename must end in .tar.gz")
-    files = collect_files(root, profile)
+    files = collect_files(root, profile, log_key, turn_log=turn_log)
     verify_runtime(files)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Replace only after verification; a failed build leaves the previous package intact.
@@ -152,16 +171,37 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", choices=PROFILES, default="frontline", help="strategy profile (default: frontline)")
     parser.add_argument("--output", type=Path, help="archive path; an existing archive is replaced after checks pass")
+    logs = parser.add_mutually_exclusive_group()
+    logs.add_argument("--log-key", help="enable encrypted turn logs and embed this passphrase")
+    logs.add_argument("--gen-log-key", action="store_true", help="enable encrypted turn logs with a generated key")
+    logs.add_argument("--turn-log", action="store_true", help="enable plaintext turn logs under logs/")
     args = parser.parse_args()
+    generated_key = None
+    log_key = None
+    if args.gen_log_key:
+        generated_key = secrets.token_urlsafe(24)
+        log_key = generated_key
+    elif args.log_key:
+        log_key = args.log_key
     output = args.output or ROOT / "artifacts" / f"submission-{args.config}.tar.gz"
     try:
-        digest, count = build_archive(ROOT, args.config, output)
+        digest, count = build_archive(
+            ROOT, args.config, output, log_key, turn_log=args.turn_log,
+        )
     except (OSError, ValueError, SyntaxError, subprocess.TimeoutExpired) as error:
         print(f"Packaging failed: {error}", file=sys.stderr)
         return 1
     print(f"Package: {output.resolve()}")
     print(f"Strategy: {args.config}; files: {count}; bytes: {output.stat().st_size}")
     print(f"SHA256: {digest}")
+    if generated_key is not None:
+        print(f"Turn-log key (store it; decrypt_turnlog.py needs it): {generated_key}")
+    elif log_key:
+        print("Turn-log encryption: key embedded")
+    elif args.turn_log:
+        print("Turn-log: plaintext files under logs/")
+    else:
+        print("Turn-log: disabled")
     return 0
 
 
