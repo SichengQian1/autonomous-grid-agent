@@ -54,7 +54,9 @@ class V06Regressions(unittest.TestCase):
         raw=developed();raw['roundNo']=160;raw['teamOur']['goldNum']=100
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':5}
         raw['teamOur']['roles'][3]['level']=2
-        next(u for u in raw['teamOur']['roles'] if u['roleType']=='rocket')['level']=2
+        # Once the basic guns/base are funded, proactive front walls get spare cash.
+        for u in raw['teamOur']['roles']:
+            if u['roleType'] in ('rocket','railgun'):u['level']=2
         raw['teamOur']['roles'].append(role(60,'wall',8,10,health=900,level=1))
         raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':13,'y':5}}]
         raw['weaponShopList']=[{'name':'WallUpgradeVoucher1','price':20},{'name':'WeaponUpgradeVoucher1','price':100}]

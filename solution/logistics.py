@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 from .actions import Action, ActionType
-from .economy import DefenseBudget
+from .economy import DefenseBudget, next_development_target
 from .models import Turn, Unit
 from .movement import MoveIntent
 from .grid import OccupancyGrid, distance_field, interaction_cells
@@ -91,9 +91,8 @@ class LogisticsManager:
                     self.retry_after[self.carrier_id] = turn.round_no+5
                 self.carrier_id, self.orders, self.stage = None, [], "expired"
         if self.carrier_id is not None and self.carrier_id != role.unit_id:
-            # A second available role may use carried goods, but cannot duplicate a shopping trip.
-            carried = plan_upgrade_or_repair(turn, role, budget, config, allow_move=False)
-            return carried if carried.action is not None and carried.action.action_type == ActionType.USE else LogisticsPlan()
+            # Procurement ownership cannot strand goods already carried by another role.
+            return plan_upgrade_or_repair(turn, role, budget, config, allow_move=True, owned_only=True)
         if self.retry_after.get(role.unit_id, 0) > turn.round_no:
             return LogisticsPlan()
         grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
@@ -109,9 +108,15 @@ class LogisticsManager:
             # Fund the first power increase before buying optional small items.
             options = [o for o in options if o[0] in role.backpack or critically_damaged(o[1])
                        or (o[1].role_type == ROLE_ROCKET and o[1].level == 1)]
+        development=next_development_target(turn,config)
+        development_id=development.unit_id if development else None
+        development_item="StationUpgradeVoucher1" if development and development.role_type==ROLE_STATION else "WeaponUpgradeVoucher1"
+        owned_development=any(development_item in r.backpack for r in turn.controllable)
+        reserve=next((i.price for i in turn.weapon_shop if i.name==development_item),0) if development and not owned_development else 0
         first_levels = any(u.is_weapon and u.level == 1 for u in turn.team_our.roles)
         def value(option):
             name,target,score = option
+            if target.unit_id==development_id: score += 10000
             if first_levels and target.is_weapon and target.level == 1: score += 3000
             if name == "WallFixer" and target.health < estimated_max_health(target)//3: score += 3000
             if target.role_type != ROLE_WALL and critically_damaged(target): score += 6000
@@ -137,8 +142,10 @@ class LogisticsManager:
                         owned[name] -= 1
                         continue
                     price = prices.get(name,0)
-                    urgent = critically_damaged(target) or (not first_rocket and target.role_type == ROLE_ROCKET)
+                    urgent = critically_damaged(target) or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET)
                     allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if urgent else budget.offensive
+                    if not urgent and not any(o.target_id==development_id for o in self.orders):
+                        allowance=max(0,allowance-reserve)
                     if 0 < price <= allowance-committed and len(self.orders) < 3:
                         self.orders.append(Delivery(name,target.unit_id,target.level))
                         committed += price
@@ -156,7 +163,7 @@ class LogisticsManager:
         missing_cost = sum(prices.get(name,100000)*n for name,n in needed.items())
         # Reserves can fund critical repairs and the first rocket power increase.
         emergency_order = any((target := turn.team_our.unit(o.target_id)) is not None and (critically_damaged(target)
-                              or (not first_rocket and target.role_type == ROLE_ROCKET))
+                              or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET))
                               for o in self.orders)
         spending = max(budget.offensive, turn.team_our.gold-budget.mandatory) if emergency_order else budget.offensive
         target = turn.team_our.unit(delivery.target_id) if delivery else None
@@ -170,7 +177,9 @@ class LogisticsManager:
             stops=[(shop_goals,len(needed))]
             stops.extend((goals(target),1) for order in self.orders
                          if (target:=turn.team_our.unit(order.target_id)) is not None)
-            if not trip.fits(stops):
+            next_task=min((t.cooldown_rounds for t in turn.team_our.player_tasks if t.cooldown_rounds>0),default=10000)
+            task_conflict=role.role_type=="pioneer" and trip.cost(stops)+2>=next_task
+            if not trip.fits(stops) or task_conflict:
                 self.orders=[order for order in self.orders if order.item in role.backpack]
                 if not self.orders:self.carrier_id=None
                 self.stage="defer_return_deadline"
@@ -179,7 +188,7 @@ class LogisticsManager:
             if shop_distance == 0:
                 name = next(iter(needed))
                 quantity = needed[name]
-                if first_rocket and name == "WallFixer" and prices[name] * (quantity+1) <= budget.offensive:
+                if first_rocket and name == "WallFixer" and prices[name] * (quantity+1) <= max(0,budget.offensive-reserve):
                     quantity += 1  # Carry one spare for the next damage event.
                 quantity = min(quantity, max(0,role.backpack_capacity-len(role.backpack)))
                 if quantity:
@@ -240,6 +249,7 @@ def plan_upgrade_or_repair(
     *,
     allow_move: bool = True,
     critical_only: bool = False,
+    owned_only: bool = False,
 ) -> LogisticsPlan:
     if role.pos is None:
         return LogisticsPlan()
@@ -272,7 +282,7 @@ def plan_upgrade_or_repair(
                 move=MoveIntent(role.unit_id, tuple(target.pos.neighbours()), priority=priority)
             )
 
-    if budget.offensive <= 0 or not turn.weapon_shop:
+    if owned_only or budget.offensive <= 0 or not turn.weapon_shop:
         return LogisticsPlan()
     shop_items = {item.name: item.price for item in turn.weapon_shop}
     affordable = next(

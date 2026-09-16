@@ -100,6 +100,7 @@ class StrategyConfig:
     recall_safety_buffer: int = 4
     recall_traffic_buffer: int = 3
     second_day_front_upgrades: int = 3
+    protect_development_fund: bool = True
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3
@@ -115,7 +116,7 @@ class StrategyConfig:
     allow_summon_pressure: bool = False
     boss_summon_item: str = "BossRobotSummonOrder"
     minimum_opponent_observations: int = 2
-    task_command_step_limit: int = 5
+    task_command_step_limit: int = 8
     task_command_output_limit: int = 16000
     task_response_wait: int = 3
     task_submit_limit: int = 3

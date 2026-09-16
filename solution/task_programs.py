@@ -62,19 +62,25 @@ def run():
             budget -= len(text)
             if budget <= 0: break
         return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]],"workspace":str(parent.relative_to(base))}
-    if kind in ("repair", "script"):
+    if kind in ("repair", "script", "python"):
         edits = options.get("edits", []) if kind == "repair" else []
         if not isinstance(edits,list) or len(edits)>8: raise ValueError("edit_limit")
         prepared = {}
         for edit in edits:
             p = inside(edit["path"])
+            if not p.exists():
+                p = inside(str(Path(options.get("cwd","."))/edit["path"]))
             if p.stat().st_size > 100000: raise ValueError("file_limit")
             old, new = edit["old"], edit["new"]
             text = prepared.get(p, p.read_text())
             if not old or text.count(old)!=1 or len(new)>20000: raise ValueError("non_unique_patch")
             prepared[p] = text.replace(old,new,1)
         for p,text in prepared.items(): p.write_text(text)
-        argv = options["check"] if kind == "repair" else ["bash", "-c", options["script"]]
+        if kind == "repair": argv=options["check"]
+        elif kind == "python":
+            compile(options["code"],"<solver>","exec")
+            argv=["python3","-c",options["code"]]
+        else: argv=["bash","-c",options["script"]]
         if not isinstance(argv,list) or not argv or not all(isinstance(a,str) for a in argv): raise ValueError("check_shape")
         if argv[0] not in ("python3","python","bash","sh","make","java"): raise ValueError("check_program")
         # Drain at most the output allowance; kill the process group on excess.
@@ -96,10 +102,11 @@ def run():
         text=(chunks[0] if chunks else b"").decode(errors="replace")
         if len(text)>12000: return {"ok":False,"status":"check_truncated","output":text[:12000]}
         if code: return {"ok":False,"status":"check_failed","exitCode":code,"output":text[:12000]}
-        if kind == "script": return {"ok":True,"status":"script_ok","output":text}
+        if kind != "repair" and options.get("submit_result") is not True:
+            return {"ok":True,"status":"script_ok","output":text}
         try: result = json.loads(text.strip().splitlines()[-1])
         except (ValueError,IndexError): return {"ok":False,"status":"check_not_structured","output":text}
-        return {"ok":True,"checked":True,"answer":field(result,options.get("answer_path",""))}
+        return {"ok":True,"checked":kind=="repair","computed":kind!="repair","answer":field(result,options.get("answer_path",""))}
     if kind == "api":
         url = options["url"]
         parts = urllib.parse.urlsplit(url)
@@ -166,7 +173,7 @@ print(json.dumps({"procedure_result":result},ensure_ascii=False))
 
 
 def procedure_command(plan: dict[str, object]) -> str:
-    if not isinstance(plan.get("kind"), str) or plan.get("kind") not in {"inspect", "repair", "api", "script"} or "base" in plan:
+    if not isinstance(plan.get("kind"), str) or plan.get("kind") not in {"inspect", "repair", "api", "script", "python"} or "base" in plan:
         return ""
     try:
         raw = json.dumps(plan, ensure_ascii=True, allow_nan=False)

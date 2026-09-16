@@ -30,6 +30,23 @@ class BuildObjective:
     priority: int
 
 
+def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
+    """Protect one permanent defensive improvement from incidental spending."""
+    if not config.protect_development_fund:
+        return None
+    weapons=existing_weapons(turn)
+    if len(weapons)<config.max_weapon_count:
+        return None
+    rockets=sorted((w for w in weapons if w.role_type=="rocket"),key=lambda w:w.unit_id)
+    if rockets and not any(w.level>=2 for w in rockets):
+        return rockets[0]
+    station=turn.team_our.station()
+    if station is not None and station.level==1 and turn.day_index>=2:
+        return station
+    return next(iter(sorted((w for w in weapons if w.level==1),
+                            key=lambda w:(w.role_type!="rocket",w.unit_id))),None)
+
+
 def defense_budget(
     turn: Turn,
     config: StrategyConfig,
@@ -204,8 +221,10 @@ class EconomyManager:
                        and all(w.level>=2 for w in existing_weapons(turn)))
         can_wait=developed and turn.team_our.gold>=config.treasure_gold_reserve and budget.margin>3
         rising=can_wait and any(state.market.will_rise(n,turn.day_index) for n in inventory)
-        cash_goal=next((i.price for i in turn.weapon_shop if i.name=="WeaponUpgradeVoucher1"),100)
-        if any(w.role_type=="rocket" and w.level>=2 for w in existing_weapons(turn)):
+        development=next_development_target(turn,config)
+        item="StationUpgradeVoucher1" if development and development.role_type=="station" else "WeaponUpgradeVoucher1"
+        cash_goal=next((i.price for i in turn.weapon_shop if i.name==item),100)
+        if development is None and any(w.role_type=="rocket" and w.level>=2 for w in existing_weapons(turn)):
             cash_goal+=budget.emergency
         team_stock=sum(prices.get(item,0) for r in turn.controllable for item in r.backpack)
         urgent_cash=turn.team_our.gold<cash_goal<=turn.team_our.gold+team_stock

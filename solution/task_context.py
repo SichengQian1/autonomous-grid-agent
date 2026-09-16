@@ -14,6 +14,11 @@ class TaskContext:
     executed: bool = False
     recent: list[str] = field(default_factory=list)
 
+    programs: list[object] = field(default_factory=list)
+
+    def remember(self, program):
+        self.programs=(self.programs+[json.dumps(program,ensure_ascii=False)[:4000]])[-2:]
+
     def ingest(self, payload, output: str, ok: bool):
         envelope=payload.get('procedure_result',payload) if isinstance(payload,dict) else {}
         if not isinstance(envelope,dict): envelope={}
@@ -40,4 +45,5 @@ class TaskContext:
 
     def prompt(self):
         return json.dumps({'workspace':self.workspace,'documents':self.documents,'files':self.files,
-                           'recent_execution':self.recent},ensure_ascii=False)
+                           'recent_execution':self.recent,'recent_programs':self.programs,
+                           'workspace_files':{p:str(PurePosixPath(p).relative_to(self.workspace)) for p in self.files if PurePosixPath(p).is_relative_to(self.workspace)}},ensure_ascii=False)

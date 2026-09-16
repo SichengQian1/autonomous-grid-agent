@@ -77,6 +77,7 @@ class AgentEngine:
                         "taskReason": str(getattr(self.planner.tasks, "diagnostic", "unknown")),
                         "taskCommandExit": self.planner.tasks.command_exit,
                         "taskCommandCategory": self.planner.tasks.command_category,
+                        "taskCommandKind": self.planner.tasks.command_kind,
                         "taskRejectReason": self.planner.tasks.reject_reason,
                         "taskWorkspaceReady": self.planner.tasks.context.resolved,
                         "taskDocumentCount": len(self.planner.tasks.context.documents),

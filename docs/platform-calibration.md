@@ -93,3 +93,23 @@ night activity, LLM/task judging, treasure interpretation, and score/win rate
 remain unverified for v0.5. Run both map sides and more than one match before
 promoting the candidate to a stronger-strategy claim. Exact Python 3.11.10 runtime
 verification is also required.
+
+## v0.6 Returned Evidence and v0.7 Boundary
+
+Four v0.6 telemetry sequences contain 633/485/489/481 turns. Their last recorded
+scores are 505/282/393/265, with bases still present; these are not confirmed final
+match scores. Each run upgrades one rocket before the first night, and successful
+task completions are 2/1/2/1 from six accepts per run. No local validation drops or
+planner fallbacks were recorded. Task timeout/wrong-answer codes are separate from
+competition-level response exceptions.
+
+The mirrored opening has a legitimate one-turn builder wait when the pioneer
+occupies the intended building cell. More damaging is a delivery goal occupied by
+an idle role: one base voucher is bought at turn 290 and used at 432. A frozen local
+scene from that interval reproduces the courier blockage. v0.7 yields the idle role;
+with other scene elements frozen, the courier reaches use after 16 movement turns.
+This is a diagnostic counterfactual, not an official replay or new match outcome.
+
+The new release also changes upgrade saving and task execution/submission handling.
+Typed Python, workspace-relative repair and final-JSON transport are tested locally;
+real LLM accuracy, next-wave survival and any score increase remain unverified.

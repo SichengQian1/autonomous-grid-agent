@@ -152,7 +152,7 @@ class TaskStateTests(unittest.TestCase):
         self.assertEqual(manager.phase, TaskPhase.FAILED)
         self.assertIsNone(plan.action)
 
-    def test_active_task_times_out_safely(self) -> None:
+    def test_live_task_phase_wins_over_estimated_timeout(self) -> None:
         turn = Turn.from_raw(synthetic_turn(round_no=15))
         state = WorldState()
         state.ingest(turn)
@@ -163,8 +163,9 @@ class TaskStateTests(unittest.TestCase):
             timeout_rounds=5,
         )
         plan = manager.plan(turn, state, LlmBudget(), DEFAULT_CONFIG, turn.team_our.unit(2))
-        self.assertEqual(manager.phase, TaskPhase.FAILED)
-        self.assertEqual(plan.prompt, "")
+        self.assertEqual(manager.phase, TaskPhase.WAITING_LLM)
+        self.assertTrue(plan.prompt)
+        self.assertIn("Estimated task turns left: 0",plan.prompt)
 
     def test_same_task_text_does_not_reuse_an_old_dynamic_answer(self) -> None:
         state = WorldState()

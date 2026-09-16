@@ -146,7 +146,7 @@ class CompetitionPlanner:
             role=turn.team_our.unit(intent.actor_id)
             if TravelBudget.for_role(turn,role,config).cost()+1 >= turn.rounds_until_night:
                 continue
-            maintenance=plan_upgrade_or_repair(turn,role,budget,config,allow_move=False)
+            maintenance=plan_upgrade_or_repair(turn,role,budget,config,allow_move=False,owned_only=True)
             if maintenance.action is not None:
                 actions.append(maintenance.action)
                 recall_intents.remove(intent)
@@ -283,7 +283,7 @@ class CompetitionPlanner:
                     treasure_plan = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure_plan, actions, intents, used)
                 if (pioneer.unit_id not in used and (
-                    not any(t.is_valid or t.cooldown_rounds > 0 for t in turn.team_our.player_tasks)
+                    not any(t.is_valid for t in turn.team_our.player_tasks)
                     or not any(w.unit_id != self.engineer_id for w in workers)
                     or self.logistics.carrier_id == pioneer.unit_id
                 )):
@@ -294,6 +294,8 @@ class CompetitionPlanner:
                     elif logistics.move is not None:
                         intents.append(logistics.move)
                         used.add(pioneer.unit_id)
+                if pioneer.unit_id not in used:
+                    self._stage_idle_pioneer(turn,pioneer,config,intents,used)
 
             treasure_prompt = ""
             latest_news = state.official_news_history[-1] if state.official_news_history else (0, "")
@@ -473,7 +475,7 @@ class CompetitionPlanner:
                 if pioneer.unit_id not in used_controllers:
                     treasure = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure, actions, intents, used_controllers)
-            for role in released:
+            for role in sorted(released,key=lambda r:r.role_type!=ROLE_PIONEER):
                 if role.unit_id in used_controllers:
                     continue
                 maintenance = (plan_upgrade_or_repair(turn, role, budget, config, allow_move=False, critical_only=True)
@@ -481,11 +483,13 @@ class CompetitionPlanner:
                 if maintenance.action is not None:
                     actions.append(maintenance.action)
                     used_controllers.add(role.unit_id)
-                    break
+                    continue
                 if maintenance.move is not None:
                     intents.append(maintenance.move)
                     used_controllers.add(role.unit_id)
-                    break
+                    continue
+            if pioneer is not None and pioneer.unit_id not in used_controllers:
+                self._stage_idle_pioneer(turn,pioneer,config,intents,used_controllers)
             for worker in released:
                 if not threats and worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers, state, config, budget)
@@ -493,6 +497,24 @@ class CompetitionPlanner:
         moves = schedule_moves(turn, intents)
         actions.extend(action for action in moves if action.actor_id not in {item.actor_id for item in actions})
         return Decision(tuple(actions), advanced.prompt, advanced.execute_command)
+
+    @staticmethod
+    def _stage_idle_pioneer(turn, pioneer, config, intents, used):
+        # Wait near the shop when no task is available, instead of blocking a gun
+        # or forcing a productive miner to handle every future purchase.
+        if turn.phase_task or any(t.is_valid for t in turn.team_our.player_tasks):
+            return
+        if not turn.weapon_shop or len(existing_weapons(turn))<config.max_weapon_count:
+            return
+        travel=TravelBudget.for_role(turn,pioneer,config)
+        goals=tuple(p for shop in turn.zone_positions("weaponShop") for p in interaction_cells(travel.grid,shop))
+        if not goals or not travel.fits(((goals,0),)):
+            return
+        next_task=min((t.cooldown_rounds for t in turn.team_our.player_tasks if t.cooldown_rounds>0),default=10000)
+        if travel.cost(((goals,0),))+2>=next_task:
+            return
+        intents.append(MoveIntent(pioneer.unit_id,goals,20))
+        used.add(pioneer.unit_id)
 
     def _basic_defense(self, turn: Turn, threats: tuple) -> Decision:
         if turn.is_day or not threats:

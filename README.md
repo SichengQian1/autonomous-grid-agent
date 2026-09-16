@@ -45,7 +45,7 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The v0.6 candidate implementation is active. It includes
+The v0.7 candidate implementation is active. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
 state machines, bounded encoded telemetry, and opponent modes. Summon pressure and
@@ -76,7 +76,7 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.6`, this produces `submissions/v0/submission-v0.6.tar.gz`. The archive
+For `v0.7`, this produces `submissions/v0/submission-v0.7.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
@@ -94,7 +94,7 @@ python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decod
 ```
 
 For a compact shareable diagnosis, add `--summary` instead of redirecting output.
-This accepts v0.2–v0.6 logs and already-decoded JSONL, including `.xz` files.
+This accepts v0.2–v0.7 logs and already-decoded JSONL, including `.xz` files.
 v0.5 also records command rejection/error categories, changing mine locations,
 individual recalls, carrier ownership, and strategy fallback counts. It records
 task progress reasons, current prices, procurement stages, and why
@@ -109,6 +109,11 @@ failures, shares physical return budgets across work and recall, cashes out comp
 mining trips, and plans three level-two front walls from day two when funds permit.
 Telemetry adds task workspace/evidence readiness and document counts without text.
 These are regression-tested changes, not a claim of competitive task success.
+
+The v0.7 iteration fixes occupied delivery goals and independent owned-item delivery,
+protects basic upgrade funding, stages idle pioneers near the shop, and supports
+execution-backed Python answers without an extra synthesis round.
+See [the current worker and task flow](docs/operating-logic.md) for the detailed logic.
 
 ## Safety
 

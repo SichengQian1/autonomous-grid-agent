@@ -24,7 +24,7 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.6 primary composition: two rocket launchers and one railgun.
+- v0.7 primary composition: two rocket launchers and one railgun.
 - Keep two railguns and one rocket launcher as the first comparison.
 - Place all three preferred weapons on the rear edge of the legal weapon ring,
   with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
@@ -151,3 +151,21 @@ telemetry promotes them to a runtime observation.
   Preserve the first rocket fund except for critical repairs; remaining level-one guns
   remain valuable. This is a funded procurement target, not a fixed-time free upgrade.
   Upgrade healing remains subject to platform evidence and runtime health.
+
+## v0.7 Operating Corrections
+
+- Empty lower-priority holds yield even when they occupy a delivery goal. This does
+  not borrow actors that are executing tasks, constructing or firing.
+- Owned goods can be delivered independently of the new-purchase carrier. Cleared-night
+  independent deliveries can proceed together; idle pioneers take new procurement first.
+- Idle pioneers can stage by the shop only when no task is currently valid, upcoming
+  cooldowns leave room and the actual return trip fits. Active tasks remain reserved.
+- Preserve the next basic development fund: the first level-two rocket, a level-two
+  base from day two, then remaining level-one weapons. Critical repair remains eligible;
+  other maintenance uses surplus. Three front-wall upgrades remain a funded goal.
+- Retain recent attempted programs alongside documents/results, expose workspace-relative
+  filenames, support direct Python source and workspace-relative repair paths. Explicitly
+  final, successful JSON computation can be submitted directly. It is execution evidence,
+  not proof of correctness. Ordinary script/inspection output still requires synthesis.
+- Command count is bounded at eight. A live runtime task phase permits completion at
+  the estimated deadline; an inactive phase clears evidence. Submission count remains three.

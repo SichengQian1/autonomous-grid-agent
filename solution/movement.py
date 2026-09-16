@@ -45,13 +45,13 @@ def schedule_moves(
         for blocker_id, blocker in roles.items():
             held = by_actor.get(blocker_id)
             if (not held or blocker_id == intent.actor_id or blocker.pos not in route[1:]
-                    or blocker.pos in intent.goals or blocker.pos not in held.goals):
+                    or blocker.pos not in held.goals or held.priority >= intent.priority):
                 continue
             grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(blocker_id,))
             candidates = [p for p in grid.neighbours(blocker.pos)
                           if p not in current_positions and p not in reserved and p not in route
                           and (held.yield_cells is None or p in held.yield_cells)]
-            if candidates:
+            if candidates and blocker_id not in yield_actions:
                 # Prefer the far side of a choke; keep the approach lane clear.
                 target = min(candidates, key=lambda p: (min(p.distance_to(g) for g in intent.goals), p))
                 yield_actions[blocker_id] = Action(blocker_id, ActionType.MOVE, targets=(target,))

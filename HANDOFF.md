@@ -95,6 +95,95 @@ empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
 
+### 2026-09-16 - v0.7 delivery access, development savings and task execution
+
+Evidence and scope:
+
+- Based on v0.6 `47227c31e108ea3e8fc35e10d4f0b9db5d8fa329`, with a clean initial
+  `codex/v0` worktree. User requested autonomous v0.7 implementation and publication.
+- Four returned sequences contain 633/485/489/481 consecutive turns, with last scores
+  505/282/393/265 and bases still present. These are recorded state scores, not confirmed
+  final match totals. Local planner failures and validation drops are zero in all four.
+- Each run upgrades a rocket before the first night (use turns 46/53/52/47), but only
+  2/1/2/1 tasks succeed from six accepts each. All four have one successful first-night
+  task for 80 gold, versus four tasks/320 gold in the reference examples. Missing-file,
+  unsupported-command and command-budget categories accompany continued task timeouts.
+  Raw commands are absent, so exact syntax/path causes cannot be claimed from categories.
+- On the mirrored opening, a pioneer occupies the first building cell. Moving it away
+  and building next turn explains the observed initial worker wait. It is not a blanket
+  opening pause; the other worker and pioneer both receive movement commands.
+- A base voucher purchased at 290 is used only at 432. An idle pioneer occupies the
+  delivery interaction goal, which the old yield logic explicitly excluded. A frozen
+  scene reproduces the courier stall; with goal yielding it reaches use after 16 moves.
+  Another carrier's ownership also blocked independent carried-item deliveries.
+- Three bases remain level one through their last records. Repeated optional wall
+  spending prevents accumulating the next basic upgrade; idle pioneers coexist with
+  busy worker couriers. Per-run summaries/hashes and reconstruction remain local-only.
+
+Changes:
+
+1. Yield lower-priority idle roles occupying delivery goals, while preserving occupied
+   next-cell, collision, task-lock and firing protections. A role gets only one yield.
+2. Let any role deliver owned maintenance items independently of the purchase carrier;
+   allow simultaneous independent deliveries after nighttime threats clear. Recall use
+   is restricted to owned items so it cannot bypass the procurement budget.
+3. Protect the next basic upgrade fund: first level-two rocket; level-two base from
+   day two; remaining level-one guns. Critical repairs remain eligible. Optional repairs,
+   wall upgrades and spare fixers use surplus. The three-front-wall target is retained
+   subject to funded basic development, not guaranteed by the second night.
+4. Prefer idle pioneers for new cleared-night procurement. In daytime, sufficiently
+   long task cooldowns can accommodate shopping. With no valid task, pioneers can stage
+   near the shop when the route/cooldown/return budgets fit, freeing miners for income.
+5. Preserve the last two attempted programs alongside documents/results; expose
+   workspace-relative filenames and support relative repair paths in the discovered cwd.
+   Add bounded direct Python execution, including recognized Python source in command
+   fields, and common local shell command forms. Token-boundary checks avoid accidental
+   substring rejection. These close reproduced compatibility gaps, not every logged error.
+6. A program explicitly marked as final can submit its successfully computed last JSON
+   line directly; ordinary inspection/script output still requires synthesis. Checked
+   and computed results are distinguished. Errors/non-JSON/truncation cannot auto-submit.
+   A live runtime task phase takes precedence over the estimated timeout boundary;
+   inactive phases clear evidence. Command limit is eight; submission limit remains three.
+7. Add a bounded command-kind diagnostic; no source, paths, prompts or answers are logged.
+   Detailed current worker/task behavior is in `docs/operating-logic.md`.
+
+Verification:
+
+- Five new minimal regressions failed on v0.6 before implementation, then passed.
+- 168 unittest cases passed on Python 3.14.6. Included both 1300-turn synthetic sides
+  with zero invalid responses, dropped actions, failed actions and planner failures.
+- Actual subprocess transport solves a fresh generated dataset in a nested workspace
+  and submits the computed result without another LLM round. Actual repair/check runs
+  verify cwd-relative patches. Tests cover failure/non-JSON suppression, program retention,
+  deadline-boundary completion, independent delivery, goal yielding, saving and pioneer
+  staging/task protection. LLM solver programs are prescribed, not a model benchmark.
+- An additional targeted check confirmed critical wall maintenance can still spend
+  while saving for a base upgrade. Existing emergency maintenance regressions also pass.
+- Source and clean-extraction HTTP tests passed on both sides: malformed JSON/null/list
+  safe fallbacks plus 71 restricted opening turns, three staffed guns and 12/13 walls.
+  Maximum observed HTTP latency across those local checks was 70.1 ms.
+- All 25 runtime modules plus the embedded sandbox parse under Python 3.11 syntax.
+  Exact Python 3.11.10 runtime verification remains outstanding.
+- Archive contains 26 runtime files; module bytes match source. No tests, raw logs,
+  reference material or analysis are packaged.
+
+Release:
+
+- `submissions/v0/submission-v0.7.tar.gz`
+- SHA-256: `b56b896769abdca0dcddb9484ed51fab41666461633333ef759aebcfa09ac72e`
+- GitHub publication is covered by standing authorization. No platform upload or match.
+
+Next calibration:
+
+- Obtain v0.7 task completions/income before first night and overall, especially whether
+  direct computation shortens successful tasks and whether remaining failures are path,
+  syntax, logic or answer-shape failures. A computed answer may still be wrong.
+- Compare base/weapon upgrade use rounds, purchase-to-use delay, worker sale income and
+  pioneer holding time excluding active tasks, safe recall and shop readiness.
+- Check that saving does not starve necessary walls under actual pressure. Both savings
+  and front-wall counts are configurable. Frozen scenes and synthetic worlds cannot prove
+  official survival, win rate, treasure success or a score approaching 2000.
+
 ### 2026-09-16 - v0.6 task evidence, operating routes and second-night front walls
 
 Evidence and scope:
