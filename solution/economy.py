@@ -13,6 +13,7 @@ from .grid import interaction_cells
 from .actions import Action, ActionType
 from .movement import MoveIntent
 from .travel import TravelBudget
+from .defense import own_threats, build_defense_layout
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +45,9 @@ def front_walls(turn: Turn) -> list[Unit]:
     if not cells: return []
     front=max(p.x for p in cells)+2
     center=sum(p.y for p in cells)/len(cells)
-    return sorted((u for u in turn.team_our.roles if u.role_type=='wall' and u.alive
-                   and u.pos is not None and frame.normalize(u.pos).x==front),
-                  key=lambda u:(abs(frame.normalize(u.pos).y-center),u.health,u.unit_id))
+    priority={y:rank for rank,y in enumerate((max(p.y for p in cells),min(p.y for p in cells),max(p.y for p in cells)+1,max(p.y for p in cells)+2,min(p.y for p in cells)-1,min(p.y for p in cells)-2))}
+    return sorted((u for u in turn.team_our.roles if u.role_type=='wall' and u.alive and u.pos is not None and frame.normalize(u.pos).x==front),
+                  key=lambda u:(priority.get(frame.normalize(u.pos).y,99),u.unit_id))
 
 
 def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
@@ -57,23 +58,13 @@ def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
     if len(weapons)<config.max_weapon_count:
         return None
     rockets=sorted((w for w in weapons if w.role_type=="rocket"),key=lambda w:w.unit_id)
-    if rockets and not any(w.level>=2 for w in rockets):
-        return rockets[0]
+    # User-approved v0.9 milestone: all guns level two, then all level three.
+    prices={i.name:i.price for i in turn.weapon_shop}
+    basic=next((w for w in sorted(weapons,key=lambda w:(w.level,w.role_type!='rocket',w.unit_id)) if w.level<3 and (prices.get(upgrade_item(w),0)>0 or not prices)),None)
+    if basic is not None:return basic
     station=turn.team_our.station()
-    if station is not None and station.level==1 and turn.day_index>=2:
-        return station
-    basic=next(iter(sorted((w for w in weapons if w.level==1),
-                          key=lambda w:(w.role_type!="rocket",w.unit_id))),None)
-    if basic is not None: return basic
-    prices={item.name:item.price for item in turn.weapon_shop}
-    walls=front_walls(turn)[:config.second_day_front_upgrades]
-    targets=[]
-    if turn.day_index>=2: targets.extend(w for w in walls if w.level==1)
-    advanced=[w for w in rockets if w.level==2]
-    if turn.day_index>=config.advanced_rocket_day and advanced and not any(w.level>=3 for w in rockets): targets.append(advanced[0])
-    if turn.day_index>=config.advanced_wall_day: targets.extend(w for w in walls if w.level==2)
-    if turn.day_index>=config.advanced_rocket_day: targets.extend(advanced)
-    return next((u for u in targets if prices.get(upgrade_item(u),0)>0),None)
+    if station is not None and station.level<3:return station
+    return next((w for w in front_walls(turn) if w.level<3),None)
 
 
 def defense_budget(
@@ -129,7 +120,7 @@ def weapon_build_objectives(
         for site in layout.weapon_sites
         if site not in occupied and site not in state.failed_build_sites
     ]
-    affordable = min(len(missing), turn.team_our.gold // config.weapon_build_cost)
+    affordable = min(len(missing), config.max_weapon_count-len(weapons), turn.team_our.gold // config.weapon_build_cost)
     return tuple(
         BuildObjective(name, site, 100 - index)
         for index, (name, site) in enumerate(zip(missing[:affordable], available))
@@ -237,6 +228,11 @@ class EconomyManager:
         if worker.pos is None:
             return EconomyPlan()
         travel = TravelBudget.for_role(turn,worker,config)
+        threats=own_threats(turn) if not turn.is_day else ()
+        if threats and any(r.pos and worker.pos.distance_to(r.pos)<=(r.attack_range or config.robot_attack_range_fallback)+2 for r in threats):
+            self.activity[worker.unit_id]='retreat_from_robot'
+            layout=build_defense_layout(turn)
+            return EconomyPlan(move=MoveIntent(worker.unit_id,layout.rear_corridor,125))
         grid = travel.grid
         vendor_goals = tuple(p for v in turn.zone_positions("vendor") for p in interaction_cells(grid,v))
         if not vendor_goals:
@@ -276,6 +272,8 @@ class EconomyManager:
             if config.local_mining_only and turn.coordinate_frame.normalize(zone.pos).x>(turn.map_info.width-1)//2:
                 continue
             goals=interaction_cells(grid,zone.pos)
+            if threats:goals=tuple(p for p in goals if not any(r.pos and p.distance_to(r.pos)<=(r.attack_range or config.robot_attack_range_fallback)+2 for r in threats))
+            if not goals:continue
             price=state.market.expected_price(zone.neutral_type,prices.get(zone.neutral_type,0),turn.day_index,can_wait=can_wait)
             if can_wait and state.market.will_rise(zone.neutral_type,turn.day_index):price*=config.market_forecast_weight
             capacity=max(0,worker.backpack_capacity-len(worker.backpack))

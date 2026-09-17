@@ -108,7 +108,7 @@ class V07OperatingTests(unittest.TestCase):
         self.assertIn('synthetic computation',manager.context.prompt())
         manager.reset(1);self.assertFalse(manager.context.programs)
 
-    def test_exact_base_price_can_fund_the_day_two_milestone(self):
+    def test_weapon_upgrade_precedes_base_on_day_two(self):
         raw=developed();raw['roundNo']=160;raw['teamOur']['goldNum']=100
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':5}
         next(u for u in raw['teamOur']['roles'] if u['roleType']=='rocket')['level']=2
@@ -116,7 +116,7 @@ class V07OperatingTests(unittest.TestCase):
         raw['weaponShopList']=[{'name':'StationUpgradeVoucher1','price':100},{'name':'WeaponUpgradeVoucher1','price':100}]
         turn=Turn.from_raw(raw)
         result=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
-        self.assertEqual(result.action.name,'StationUpgradeVoucher1')
+        self.assertEqual(result.action.name,'WeaponUpgradeVoucher1')
 
     def test_idle_pioneer_stages_near_shop_without_displacing_active_task(self):
         from solution.engine import AgentEngine

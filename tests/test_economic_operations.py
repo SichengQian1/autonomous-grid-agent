@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from solution.economy import EconomyManager, DefenseBudget
 from solution.logistics import LogisticsManager
 from solution.market import MarketMemory
@@ -113,16 +114,16 @@ class EconomicOperationsTests(unittest.TestCase):
         raw['weaponShopList']=[{'name':'WeaponUpgradeVoucher1','price':100}]
         raw['teamOur']['goldNum']=225
         manager=LogisticsManager(); budget=DefenseBudget(0,25,200,12)
-        turn=Turn.from_raw(raw); plan=manager.plan(turn,turn.team_our.unit(1),budget,DEFAULT_CONFIG)
+        turn=Turn.from_raw(raw); plan=manager.plan(turn,turn.team_our.unit(1),budget,replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertEqual((plan.action.name,plan.action.quantity),('WeaponUpgradeVoucher1',2))
         raw['teamOur']['roles'][0]['backpack']=['WeaponUpgradeVoucher1']*2
         raw['teamOur']['goldNum']=25; raw['roundNo']=2
-        turn=Turn.from_raw(raw); plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
+        turn=Turn.from_raw(raw); plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertIsNotNone(plan.move); self.assertEqual(manager.stage,'deliver')
         target=turn.team_our.unit(manager.orders[0].target_id)
         raw['teamOur']['roles'][0]['pos']={'x':target.pos.x-1,'y':target.pos.y}
         raw['roundNo']=3; turn=Turn.from_raw(raw)
-        plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
+        plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertEqual(plan.action.action_type.value,'use')
 
     def test_treasure_requires_known_multiple_day_evidence_and_owned_items(self):

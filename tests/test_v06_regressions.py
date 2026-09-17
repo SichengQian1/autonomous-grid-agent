@@ -137,7 +137,7 @@ class TaskWorkspaceIntegration(unittest.TestCase):
 class SchedulingIntegration(unittest.TestCase):
     def test_task_acceptance_includes_obstacle_detour_and_return_margin(self):
         from solution.travel import TravelBudget
-        raw=developed();raw['roundNo']=44
+        raw=developed();raw['roundNo']=56
         raw['teamOur']['roles'][2]['pos']={'x':17,'y':10}
         raw['teamOur']['roles'] += [role(100+y,'wall',10,y) for y in range(17)]
         raw['teamOur']['playerTasks']=[{'taskType':'synthetic','taskPosition':{'x':18,'y':10},'isValid':True,
@@ -147,7 +147,7 @@ class SchedulingIntegration(unittest.TestCase):
         self.assertGreater(budget.cost()+budget.margin+7,turn.rounds_until_night)
         self.assertIsNone(TaskManager._choose_task(turn,pioneer,DEFAULT_CONFIG))
 
-    def test_idle_controller_uses_owned_upgrade_but_firing_takes_priority(self):
+    def test_controller_prioritizes_owned_upgrade_then_fires(self):
         from solution.combat import assign_controllers
         from solution.engine import AgentEngine
         raw=developed();raw['roundNo']=80
@@ -164,6 +164,7 @@ class SchedulingIntegration(unittest.TestCase):
         self.assertEqual(result[str(a.controller.unit_id)]['action'],'use')
         self.assertNotIn(str(a.weapon.unit_id),result)
         by_id[a.weapon.unit_id]['cooldown']=0
+        by_id[a.controller.unit_id]['backpack']=[]
         result=AgentEngine().decide(raw)['roleCommandMap']
         self.assertEqual(result[str(a.weapon.unit_id)]['action'],'attack')
         self.assertNotIn(str(a.controller.unit_id),result)

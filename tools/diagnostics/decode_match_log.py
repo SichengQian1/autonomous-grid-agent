@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from tools.diagnostics.task_report import summarize_tasks
 from solution.telemetry import PREFIX, decode_event  # noqa: E402
 
 
@@ -91,7 +92,7 @@ def summarize_events(events):
             "dayNightBoundaries":boundaries,"weaponActivity":dict(weapon_activity),
             "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons),
             "taskCommandCategoryTurns":dict(command_categories),"taskRejectReasonTurns":dict(rejection_reasons),
-            "economyActivityTurns":dict(economy_activity),"taskOutcomes":task_outcomes(events)}
+            "economyActivityTurns":dict(economy_activity),"taskOutcomes":task_outcomes(events),"taskDetail":summarize_tasks(events)}
 
 
 def task_outcomes(events):
@@ -136,6 +137,9 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=2000)
     parser.add_argument("--max-bytes", type=int, default=16 * 1024 * 1024)
     parser.add_argument("--summary", action="store_true", help="print only a bounded identifier-free diagnostic summary")
+    parser.add_argument("--tasks", action="store_true", help="task categories, timelines, failures and reuse")
+    parser.add_argument("--task-id", help="bounded sanitized details for a task such as T002")
+    parser.add_argument("--detail-limit", type=int, default=24)
     args = parser.parse_args()
     if not args.log.is_file():
         raise SystemExit(f"log not found: {args.log}")
@@ -150,21 +154,23 @@ def main() -> None:
                 event = decode_event(line)
             elif line.lstrip().startswith("{"):
                 event = json.loads(line)
-                if not isinstance(event,dict) or event.get("event") not in {"turn","checkpoint"}:
+                if not isinstance(event,dict) or event.get("event") not in {"turn","checkpoint","task"}:
                     continue
             else:
                 continue
         except ValueError:
             failed += 1
             continue
-        if args.summary:
+        if args.summary or args.tasks or args.task_id:
             events.append(event)
         else:
             print(json.dumps(event, ensure_ascii=False, sort_keys=True))
         decoded += 1
         if decoded >= limit:
             break
-    if args.summary:
+    if args.tasks or args.task_id:
+        print(json.dumps(summarize_tasks(events,args.task_id,min(max(args.detail_limit,1),64)),ensure_ascii=False,sort_keys=True))
+    elif args.summary:
         print(json.dumps(summarize_events(events), ensure_ascii=False, sort_keys=True))
     print(json.dumps({"summary": {"decoded": decoded, "failed": failed}}), file=sys.stderr)
 

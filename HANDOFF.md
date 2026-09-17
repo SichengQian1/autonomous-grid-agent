@@ -9,14 +9,15 @@ match logs here.
 
 - Target Python 3.11.10 with standard-library runtime code.
 - Optimize match win rate under a zero-exception safety constraint.
-- v0.2 primary weapon experiment: two rocket launchers and one railgun.
+- v0.9 primary weapon experiment: three rocket launchers with two shared operators.
 - First comparison: two railguns and one rocket launcher.
 - Treat task score and income as primary differentiators when defensive readiness
   remains safe.
 - Keep opponent modeling in the architecture, but v0.2 disables cross-map fire and
   summon pressure until the development/defense baseline is calibrated.
 - Place weapons behind the base. Build the centre-front wall first, add side cover,
-  and reserve two permanent rear corridor cells. Dynamic remove/rebuild is outside V1.
+  and reserve four permanent rear corridor cells in the normal layout. Dynamic
+  remove/rebuild remains disabled. Two-cell edge-layout fallback is retained.
 
 ## Source and Repository Boundaries
 
@@ -86,6 +87,10 @@ After a change:
 - `solution/task_programs.py`: generic bounded sandbox procedures.
 - `solution/task_answers.py`: answer contracts and canonical rejection fingerprints.
 - `solution/task_context.py`: bounded per-task documents, workspace and execution evidence.
+- `solution/task_api.py`: bounded API retrieval, completeness evidence and aggregation.
+- `solution/task_series.py`: match-local method provenance, compatibility and invalidation.
+- `solution/task_audit.py`: sanitized task events, outcome attribution and log budgets.
+- `solution/maintenance.py`: threatened front-wall support and retreat.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
 - `solution/telemetry.py`: bounded sanitized `AGLOG2` records.
@@ -95,6 +100,104 @@ recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. A
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-17 - v0.9 shared rockets, task SOPs and task evidence
+
+Scope and evidence:
+
+- Started on codex/v0 at 88d820e6c7179e8b083cc14d194f0bb21e2b0261.
+  The pre-existing AGENTS.md edit was preserved and excluded from this release.
+- The latest seven-run review of v0.8 found API tasks: 0 full, 4 partial, 17 zero;
+  repair tasks: 4 full, 17 zero. Of 42 tasks, 33 never submitted. All 48 observed
+  missing-file events were repair tasks, and all 30 answer-schema events were API
+  tasks. These are different samples from the earlier release entry below.
+- Partial API rewards do not prove pagination was the sole cause. Missing-file
+  categories do not identify one universal path error. Own observed repair baseline
+  remains at most two of three full successes per run, not three of three.
+- The user explicitly authorized the primary composition and operating changes.
+  No original match data, task projects, answers or credentials are release inputs.
+
+Changes:
+
+1. Three rockets occupy requested normalized diagram cells 12, 14 and 15. The shared
+   post at 16 covers two rockets; a second post covers the remaining one. Use actual
+   cooldown, one action per operator, dynamic assignment and generic-layout fallback.
+   Four rear wall cells stay open. Projected damage reduces repeated targeting of
+   already lethal small/medium groups; immediate threats to a damaged base can override.
+2. Two operators defend the first two nights while a spare worker can mine safely.
+   From night three, a worker carrying wall items supports front walls 3, 4, 2, 1,
+   moving when necessary and retreating from unprotected danger. Maintenance uses
+   low health and estimated incoming damage, not automatic full-health upgrading.
+3. Actual return paths use two total margin turns. Weapon upgrades progress through
+   all level-two guns, then all level-three guns, before ordinary base development.
+   Purchased weapon vouchers can accompany daytime work and be used on-route or at
+   recall. A voucher-carrying spare must return. Day-one pioneer prioritizes tasks;
+   later funded procurement can precede a new task, never interrupt an active one.
+4. API tasks use a callable deterministic executor for filter validation, bounded
+   pagination, stable-ID deduplication, repeated-page detection, total/end evidence,
+   and explicit field computations. A short page alone never proves completion.
+   Contracts, field comparisons and failures remain explicit. Complete current-task
+   data can be cached for recalculation; missing cache files cause fresh retrieval.
+5. Repair procedures distinguish documentation and project directories, perform
+   bounded unique-file recovery and confirm the checker before patching. Patch
+   match counts and execution evidence are retained. Local executable checkers and
+   structured/text proof extraction are supported without statistical verification
+   gates. Fresh task-bound successful proofs take the fast submission path.
+6. Per-task candidates and match-local methods have separate lifetimes. Method tiers
+   distinguish observations, executed procedures and platform-full outcomes. Reuse
+   requires fresh bindings and a matching declared contract; runtime contradictions
+   invalidate methods. Stored templates exclude old answers, authentication bindings,
+   project patch values and check invocation paths. New matches reset series state.
+7. Auxiliary verifier exceptions preserve a structurally valid computed candidate
+   for deadline submission; an explicit failed business assertion does not authorize
+   that fallback. Schema details identify fields and types, including supported aliases.
+   Mismatched task envelopes and unsolicited stale model results cannot recycle proofs.
+8. Bounded sanitized task events include anonymous task/category ordinals, document
+   fingerprints/truncation, selected program/exception evidence, API page/field checks,
+   repair paths/match counts, submission shape, feedback, reuse and outcome provenance.
+   Unknown output object keys are anonymized as well as values.
+   Known buy/sell/build effects are deducted before reward classification; ambiguous
+   settlements remain unknown. Proof values are excluded. Encoding follows redaction.
+   Event/task/match budgets and drop counters protect response and log limits.
+9. Read-only diagnostics support legacy logs and decoded JSONL, category summaries,
+   per-task timelines/details, failure reasons and method reuse/ordinal timings:
+   `python tools/diagnostics/decode_match_log.py match.jsonl.xz --tasks`, or
+   `--task-id T002 --detail-limit 24` for bounded detail.
+
+Verification and artifact:
+
+- Saved failing synthetic regressions before implementation for candidate loss,
+  legal executable checker rejection and requested layout/configuration.
+- 232 unittest cases passed on Python 3.14.6, including both 1300-turn synthetic
+  regressions. API fixtures vary response shape, ignored filters/page size, totals,
+  repeated/overlapping pages, authentication, cache and fresh task bindings. Repair
+  fixtures vary directories/configuration and dynamic proofs; ambiguous paths and
+  patches fail explicitly. Audit tests cover redaction, budgets and mixed coin events.
+- Source and clean-archive HTTP checks passed on both sides, including malformed
+  JSON, null/list fallback and 71-turn restricted construction. Each produced three
+  rockets, 12/13 walls and two operators covering all three guns. Maximum observed
+  HTTP latency was 139.6 ms. This is synthetic opening evidence only.
+- All 30 runtime modules and embedded sandbox parse using Python 3.11 syntax rules.
+  Execution on exact Python 3.11.10 remains unverified locally.
+- Archive contains 31 runtime files: entrypoint and 30 modules; source bytes match.
+  No tests, logs, private references, task projects or credentials are included.
+- Release: `submissions/v0/submission-v0.9.tar.gz`.
+- SHA-256: `10b0bd864af9f7179def979cd792e7237bc6ebb5dcf577677014d7505a6b1a59`.
+
+Limits and next match acceptance:
+
+- No official match was launched. Prescribed synthetic solver inputs do not establish
+  real-model success, platform scores, win rate, or stable three-of-three repairs.
+- Fresh interface interpretation and applicability still require model decisions;
+  saved methods alone do not establish effective self-improvement. Compare second/
+  third-task exploration count, elapsed turns and full outcomes, not only reuse flags.
+- Measure full/partial/zero/unsubmitted by category, three-of-three repair runs,
+  earlier task funds, actual weapon upgrade turns and protocol/survival regressions.
+- Observe shared-operator missed shots, four-cell rear exposure, two-turn recall
+  lateness, third-night support safety and real splash/damage semantics. These changes
+  are authorized experiments, not proven survival improvements.
+- Unknown reward attribution stays unknown. Limited legacy logs cannot reveal missing
+  historical programs, exact patches, answers or checker outputs.
 
 ### 2026-09-16 - v0.8 task verification, recovery and development funding
 

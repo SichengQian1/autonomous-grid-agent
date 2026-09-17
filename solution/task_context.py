@@ -22,10 +22,13 @@ class TaskContext:
     candidate_checked: bool = False
     schema_pass: bool = False
     recovery: str = ''
+    candidate_failure: str = ''
+    last_plan: dict = field(default_factory=dict)
     failed_programs: set[str] = field(default_factory=set)
     last_program: str = ''
 
     def remember(self, program):
+        self.last_plan=program if isinstance(program,dict) else {}
         self.last_program=answer_fingerprint(program)
         self.programs=(self.programs+[json.dumps(program,ensure_ascii=False)[:4000]])[-2:]
 
@@ -68,10 +71,11 @@ class TaskContext:
         elif self.executed: self.failed_programs.clear()
         self.candidate=None
         self.candidate_checked=self.schema_pass=False
-        if self.executed and 'answer' in envelope:
+        if (self.executed or envelope.get('computed') is True) and 'answer' in envelope:
             self.candidate=envelope['answer']
             self.candidate_checked=envelope.get('checked') is True
             self.schema_pass=envelope.get('schema_pass') is True
+            self.candidate_failure=('business_assertion_failed' if envelope.get('verification_kind')=='assertion' else str(envelope.get('status',''))) if self.failed_execution else ''
         self.recent=(self.recent+[output[:6000]])[-2:]
 
     def prompt(self):

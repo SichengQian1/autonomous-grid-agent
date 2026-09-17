@@ -86,7 +86,7 @@ class StrategyConfig:
     normal_turn_budget_seconds: float = NORMAL_TURN_BUDGET_SECONDS
     primary_weapon_loadout: tuple[str, str, str] = (
         ROLE_ROCKET,
-        ROLE_RAILGUN,
+        ROLE_ROCKET,
         ROLE_ROCKET,
     )
     comparison_weapon_loadout: tuple[str, str, str] = (
@@ -97,8 +97,14 @@ class StrategyConfig:
     weapon_build_cost: int = WEAPON_BUILD_COST
     max_weapon_count: int = MAX_WEAPON_COUNT
     max_wall_count: int = MAX_WALL_COUNT
-    recall_safety_buffer: int = 4
-    recall_traffic_buffer: int = 3
+    recall_safety_buffer: int = 2
+    recall_traffic_buffer: int = 0
+    shared_rocket_control: bool = True
+    night_support_day: int = 3
+    robot_attack_range_fallback: int = 3
+    wall_heal_fraction: float = 0.40
+    wall_retreat_fraction: float = 0.20
+    defer_weapon_delivery: bool = True
     second_day_front_upgrades: int = 3
     protect_development_fund: bool = True
     advanced_rocket_day: int = 3

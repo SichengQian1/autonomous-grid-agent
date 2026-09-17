@@ -8,11 +8,12 @@ import base64
 import json
 import zlib
 import inspect
-from .task_answers import shape_error
+from .task_answers import shape_error, shape_details
+from .task_api import run_api
 
 
 # Kept self-contained because the task sandbox is separate from the HTTP process.
-SANDBOX_PROGRAM = inspect.getsource(shape_error) + r'''
+SANDBOX_PROGRAM = inspect.getsource(shape_error) + '\n' + inspect.getsource(shape_details) + '\n' + inspect.getsource(run_api) + r'''
 import json, os, subprocess, time, urllib.request, urllib.parse
 from pathlib import Path
 started = time.monotonic()
@@ -21,6 +22,19 @@ def inside(name):
     p = (base / name).resolve()
     if not p.is_relative_to(base): raise ValueError("path_outside_task")
     return p
+execution_evidence={}
+path_evidence=[]
+patch_evidence=[]
+def resolve_file(name, cwd="."):
+    candidates=list(dict.fromkeys((inside(str(Path(cwd)/name)),inside(name))))
+    for p in candidates:
+        path_evidence.append({"requested":name,"base":cwd,"path":str(p.relative_to(base)),"exists":p.exists(),"is_file":p.is_file()})
+        if p.is_file():return p
+    matches=[inside(f) for f in inventory() if Path(f).name==Path(name).name]
+    if len(matches)==1:
+        path_evidence.append({"located":str(matches[0].relative_to(base)),"method":"unique_basename"})
+        return matches[0]
+    raise FileNotFoundError(name)
 def remaining():
     left = 9 - (time.monotonic() - started)
     if left <= 0: raise TimeoutError("procedure_deadline")
@@ -44,6 +58,7 @@ def execute(argv, cwd, extra_env=None):
     import threading, signal
     env = dict(os.environ)
     if extra_env: env.update(extra_env)
+    execution_evidence.update(cwd=str(cwd.relative_to(base)),stream='combined_stdout_stderr',program=argv[0],cwd_exists=cwd.is_dir(),stage='launch',argument_count=len(argv))
     proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, start_new_session=True)
     def stop():
@@ -60,6 +75,7 @@ def execute(argv, cwd, extra_env=None):
     reader.join(timeout=0.2)
     if reader.is_alive(): stop(); reader.join(timeout=0.2)
     text=(chunks[0] if chunks else b'').decode(errors='replace')
+    execution_evidence.update(stage='completed',exit_code=code,output_length=len(text))
     return code,text
 def run():
     kind = options["kind"]
@@ -87,8 +103,7 @@ def run():
             nearby = [p for p in files if p.is_relative_to(parent)]
         explicit = []
         for name in options.get('paths',[])[:4]:
-            p=inside(name)
-            if not p.is_file(): p=inside(str(parent.relative_to(base)/name))
+            p=resolve_file(name,str(parent.relative_to(base)))
             if p.is_file() and p not in explicit: explicit.append(p)
         docs = explicit + [p for p in docs if p not in explicit]
         docs += [p for p in nearby if p.name.lower() in ("readme.md", "spec.md", "api_docs.md", "task.md") and p not in docs]
@@ -103,33 +118,53 @@ def run():
                 chunk = handle.read(min(6000,budget)+1)
             text = chunk[:min(6000,budget)]
             output.append({"path":name,"text":text,"offset":offset,
-                           "next_offset":offset+len(text),"complete":len(chunk)==len(text)})
+                           "next_offset":offset+len(text),"original_bytes":p.stat().st_size,"complete":len(chunk)==len(text)})
             budget -= len(text)
             if budget <= 0: break
-        return {"documents":output,"files":[str(p.relative_to(base)) for p in nearby[:60]],
-                "workspace":str(parent.relative_to(base)),"root":str(base)}
+        return {"documents":output,"files":inventory(),
+                "workspace":str(parent.relative_to(base)),"document_directory":str(parent.relative_to(base)),"root":str(base)}
     if kind in ("repair", "script", "python"):
         edits = options.get("edits", []) if kind == "repair" else []
         if not isinstance(edits,list) or len(edits)>8: raise ValueError("edit_limit")
         prepared = {}
+        checker_files=set()
+        checker_cwd=inside(options.get('cwd','.'))
+        check_argv=list(options.get('check',[])) if kind=='repair' else []
+        if check_argv:
+            script_index=0 if '/' in check_argv[0] else 1 if len(check_argv)>1 and not check_argv[1].startswith('-') and Path(check_argv[1]).suffix in ('.py','.sh','.jar') else None
+            if script_index is not None:
+                requested=check_argv[script_index]
+                existed=(checker_cwd/requested).is_file()
+                checker=resolve_file(requested,str(checker_cwd.relative_to(base)))
+                checker_files.add(checker)
+                check_argv[script_index]=str(checker)
+                if not existed:checker_cwd=checker.parent
         for edit in edits:
-            p = inside(edit["path"])
-            if not p.exists():
-                p = inside(str(Path(options.get("cwd","."))/edit["path"]))
+            p = resolve_file(edit["path"],str(checker_cwd.relative_to(base)))
+            if p in checker_files:raise ValueError("checker_edit_forbidden")
+            for argument in options.get("check",[]):
+                if isinstance(argument,str) and argument and not argument.startswith("-"):
+                    candidate=inside(str(Path(options.get("cwd","."))/argument))
+                    if candidate==p:raise ValueError("checker_edit_forbidden")
             if p.stat().st_size > 100000: raise ValueError("file_limit")
             old, new = edit["old"], edit["new"]
             text = prepared.get(p, p.read_text())
+            patch_evidence.append({'path':str(p.relative_to(base)),'matches':text.count(old),'changed':False})
             if not old or text.count(old)!=1 or len(new)>20000: raise ValueError("non_unique_patch")
             prepared[p] = text.replace(old,new,1)
+            patch_evidence.append({"path":str(p.relative_to(base)),"matches":text.count(old),"before_length":len(text),"after_length":len(prepared[p]),"changed":text!=prepared[p]})
         for p,text in prepared.items(): p.write_text(text)
-        if kind == "repair": argv=options["check"]
+        if kind == "repair": argv=check_argv
         elif kind == "python":
             compile(options["code"],"<solver>","exec")
             argv=["python3","-c",options["code"]]
         else: argv=["bash","-c",options["script"]]
         if not isinstance(argv,list) or not argv or not all(isinstance(a,str) for a in argv): raise ValueError("check_shape")
-        if argv[0] not in ("python3","python","bash","sh","make","java"): raise ValueError("check_program")
-        cwd = inside(options.get('cwd','.'))
+        if any("\x00" in a for a in argv): raise ValueError("check_program")
+        if "/" in argv[0]:
+            executable=inside(str(Path(options.get("cwd","."))/argv[0]))
+            if not executable.is_file():raise FileNotFoundError(argv[0])
+        cwd = checker_cwd if kind=='repair' else inside(options.get('cwd','.'))
         code,text = execute(argv,cwd)
         if len(text)>12000: return {"ok":False,"status":"check_truncated","output":text[:12000]}
         if code:
@@ -149,12 +184,14 @@ def run():
                 result=matches[0]
             else:
                 result=json.loads(text.strip().splitlines()[-1],parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
+            if kind=='repair' and isinstance(result,dict) and any(result.get(k) is False for k in ('success','passed','ok')):
+                return {'ok':False,'status':'checker_reported_failure','output':text}
             answer=field(result,options.get('answer_path',''))
         except (ValueError,IndexError,KeyError,TypeError):
             return {"ok":False,"status":"check_not_structured","output":text}
         required=options.get('required')
         problem=shape_error(answer,required) if required is not None else ''
-        if problem: return {'ok':False,'status':'answer_schema','reason':problem,'output':text}
+        if problem: return {'ok':False,'status':'answer_schema','reason':problem,'answer':answer,'computed':True,'schema_pass':False,'output':text}
         verified=False
         if kind != 'repair' and options.get('verify'):
             verifier=options['verify']
@@ -164,7 +201,7 @@ def run():
             checks=[node for node in ast.walk(tree) if isinstance(node,ast.Assert)
                     and any(isinstance(n,ast.Name) and n.id=='answer' for n in ast.walk(node.test))]
             if not checks:
-                return {'ok':False,'status':'verification_missing_assert'}
+                return {'ok':False,'status':'verification_missing_assert','answer':answer,'computed':True,'schema_pass':bool(required) and not problem}
             class CountChecks(ast.NodeTransformer):
                 def visit_Assert(self,node):
                     if node in checks:
@@ -176,72 +213,16 @@ def run():
             status,output=execute(['python3','-c',source],cwd,
                                   {'TASK_CANDIDATE_JSON':json.dumps(answer,allow_nan=False)})
             if status or len(output)>12000:
-                return {'ok':False,'status':'verification_failed','exitCode':status,'output':output[:6000]}
+                return {'ok':False,'status':'verification_failed','verification_kind':'assertion' if 'AssertionError' in output else 'verifier_exception','exitCode':status,'output':output[:6000], 'answer':answer,'computed':True,'schema_pass':bool(required) and not problem}
             try: check_count=json.loads(output.strip().splitlines()[-1])['executed_checks']
             except (ValueError,IndexError,KeyError,TypeError): check_count=0
             if not isinstance(check_count,int) or check_count<1:
-                return {'ok':False,'status':'verification_missing_assert'}
+                return {'ok':False,'status':'verification_missing_assert','answer':answer,'computed':True,'schema_pass':bool(required) and not problem}
             verified=not shape_error(answer,required)
         return {'ok':True,'checked':kind=='repair' or verified,'computed':kind!='repair',
                 'answer':answer,'schema_pass':bool(required) and not problem}
     if kind == "api":
-        url = options["url"]
-        parts = urllib.parse.urlsplit(url)
-        if parts.scheme!="http" or parts.hostname not in ("localhost","127.0.0.1") or parts.username: raise ValueError("loopback_only")
-        class NoRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self,*args,**kwargs): raise ValueError("redirect_refused")
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-        pagination = options.get("pagination",{})
-        records, seen, pages = [], set(), set()
-        complete = False
-        start, size = int(pagination.get("start",1)), int(pagination.get("size",100))
-        if not 1<=size<=1000: raise ValueError("page_size")
-        total_path = pagination.get("total_path")
-        for index in range(30):
-            query = dict(urllib.parse.parse_qsl(parts.query)); query.update(options.get("query",{}))
-            if pagination:
-                query[pagination.get("parameter","page")] = start + index * int(pagination.get("step",1))
-                if pagination.get("size_parameter"): query[pagination["size_parameter"]] = size
-            request = urllib.request.Request(urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(query))),headers=options.get("headers",{}))
-            with opener.open(request,timeout=min(2,remaining())) as response: raw=response.read(256001)
-            if len(raw)>256000: raise ValueError("response_limit")
-            data=json.loads(raw); page=field(data,options.get("records_path",""))
-            if not isinstance(page,list): raise ValueError("records_shape")
-            fingerprint=json.dumps(page,sort_keys=True)
-            if page and fingerprint in pages: return {"ok":False,"status":"repeated_page","count":len(records)}
-            pages.add(fingerprint)
-            for record in page:
-                if pagination.get("id_path"):
-                    key=json.dumps(field(record,pagination["id_path"]),sort_keys=True)
-                    if key not in seen: records.append(record); seen.add(key)
-                else: records.append(record)
-            if len(records)>10000: raise ValueError("record_limit")
-            if total_path:
-                if len(records)>=int(field(data,total_path)): complete=True; break
-            elif not pagination or not page or len(page)<size:
-                complete=True; break
-            if index and not page: break
-        if not complete: return {"ok":False,"status":"incomplete_pages","count":len(records)}
-        answer={}
-        for name,spec in options.get("fields",{}).items():
-            op=spec["op"]
-            if op=="constant": answer[name]=spec["value"]
-            elif op=="count": answer[name]=len(records)
-            elif op=="count_equal": answer[name]=sum(field(r,spec["path"])==spec["value"] for r in records)
-            elif op=="unique":
-                values=[field(r,spec["path"]) for r in records]
-                if spec.get("flatten"): values=[v for group in values for v in group]
-                answer[name]=list(dict.fromkeys(values))
-            elif op=="sum": answer[name]=sum(field(r,spec["path"]) for r in records)
-            elif op in ("min_by","max_by"):
-                selected=(min if op=="min_by" else max)(records,key=lambda r:field(r,spec["path"]))
-                answer[name]=field(selected,spec["value_path"])
-            else: raise ValueError("unknown_aggregate")
-        required=options.get('required')
-        problem=shape_error(answer,required) if required is not None else ''
-        if problem: return {'ok':False,'status':'answer_schema','reason':problem,'count':len(records)}
-        return {"ok":True,"checked":True,"answer":answer,"count":len(records),
-                'schema_pass':bool(required) and not problem}
+        return run_api(options, remaining)
     raise ValueError("unknown_procedure")
 try:
     result=run()
@@ -250,12 +231,22 @@ except Exception as error:
     if isinstance(error,FileNotFoundError):
         try: result.update(files=inventory(),workspace=str(options.get('cwd','.')),root=str(base))
         except TimeoutError: pass
-    if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate"}:
+    if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate","checker_edit_forbidden","era_pattern_limit"}:
         result["reason"]=str(error)
+if result.get('status')=='answer_schema':result['schema_details']=shape_details(result.get('answer'),options.get('required'))
+result['execution_evidence']=execution_evidence
+result['path_evidence']=path_evidence[:12]
+result['patch_evidence']=patch_evidence[:8]
+result['elapsed_ms']=int((time.monotonic()-started)*1000)
+result['cwd']=execution_evidence.get('cwd',str(options.get('cwd','.')))
+result['kind']=options.get('kind')
+if options.get('task_id'):result['task_id']=options['task_id']
 def render(): return json.dumps({'procedure_result':result},ensure_ascii=False)
 # Keep the envelope parseable; mark omitted document tails for a targeted read.
 while len(render())>15000:
-    if result.get('files'):
+    if len(result.get('evidence',{}).get('requests',[]))>4:
+        result['evidence']['requests'].pop(1);result['evidence']['omitted_requests']=result['evidence'].get('omitted_requests',0)+1
+    elif result.get('files'):
         result['files'].pop(); result['files_truncated']=True
     elif result.get('documents') and any(len(d['text'])>256 for d in result['documents']):
         doc=max(result['documents'],key=lambda d:len(d['text']))

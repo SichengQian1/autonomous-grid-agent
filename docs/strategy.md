@@ -24,11 +24,11 @@ Use a lexicographic decision hierarchy:
 ## Current Experimental Baseline
 
 - Build all three weapon slots as early as safely possible.
-- v0.8 primary composition: two rocket launchers and one railgun.
+- v0.9 primary composition: three rocket launchers.
 - Keep two railguns and one rocket launcher as the first comparison.
-- Place all three preferred weapons on the rear edge of the legal weapon ring,
-  with three distinct control positions and two permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
-- Keep two permanent rear corridor cells open for role traffic.
+- Place the preferred weapons in diagram cells 12, 14 and 15 of the legal ring,
+  with two shared control posts and four permanent outer gates. Build the centre-front wall first, then front extensions and side walls.
+- Keep four permanent rear corridor cells open for role traffic.
 - Build weapons only one cell from the whole base footprint and walls only two
   cells away. These are distinct rings; moving a weapon farther behind the base
   cannot override its permitted building area.
@@ -65,7 +65,7 @@ telemetry promotes them to a runtime observation.
 
 ### Opening
 
-- Establish two rockets and one railgun behind the base.
+- Establish three rockets in the specified rear-half layout.
 - Start stone collection for critical walls.
 - Send the pioneer toward the highest-value safe task opportunity.
 - Learn initial robot spawn and path behavior.
@@ -92,7 +92,7 @@ telemetry promotes them to a runtime observation.
   cannot move it off the active task point.
 - Recall latches separately for each role until the next day. A remote role cannot
   freeze a nearby builder. Return deadlines include obstacle-aware paths and
-  a separate traffic allowance for queued humans and construction detours.
+  a combined two-turn safety allowance; shared-control coverage and late arrivals require calibration.
 
 ### Endgame
 
@@ -183,3 +183,11 @@ level-three rocket from day three, key level-three front walls from day four, th
 the other rocket. Critical maintenance takes precedence. Use actual shop prices;
 sell personal stock that closes a funding gap and do not speculate while underfunded.
 These timing targets remain configurable hypotheses requiring multi-match calibration.
+
+## v0.9 task and operating acceptance
+
+The current behavior and its limitations are described in `operating-logic.md`.
+Task validation must measure full success by category, unsubmitted tasks, later-task
+exploration and actual reward arrival. Shared rocket control, smaller recall margins
+and delayed voucher use require multi-match tests on both sides. Synthetic checks
+prove only the exercised action/transport/state invariants, not score or win rate.

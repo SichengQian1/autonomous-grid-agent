@@ -43,6 +43,12 @@ class AgentEngine:
             if turn.llm_response:
                 self.llm_budget.mark_response_received()
 
+            try:
+                if getattr(self.planner.tasks,"last_generation",self.state.generation) != self.state.generation:
+                    self.planner.tasks.reset(self.state.generation)
+                self.planner.tasks.audit.observe(turn,self.planner.tasks.series)
+            except Exception:
+                pass  # Instrumentation never affects the decision boundary.
             decision = self._plan(turn, started_at)
             response, issues = serialize_decision(turn, decision, self.validator)
             if issues:
@@ -64,11 +70,17 @@ class AgentEngine:
                 if self.telemetry.generation != self.state.generation:
                     self.telemetry = Telemetry(self.config.telemetry_byte_budget, self.config.telemetry_reserve_bytes,
                                                generation=self.state.generation)
+                self.planner.tasks.audit.record(turn,response,self.planner.tasks)
+                for event in self.planner.tasks.audit.drain():
+                    if not self.telemetry.emit(event,critical=event.get('kind') in ('accept','execution','submit','end')):
+                        self.planner.tasks.audit.dropped+=1
                 self.telemetry.record_turn(
                     turn, response,
                     elapsed_ms=int((time.monotonic() - started_at) * 1000),
                     dropped_actions=len(issues),
                     diagnostics={
+                        "taskLogDropped": self.planner.tasks.audit.dropped,
+                        "taskLogBytes": self.planner.tasks.audit.total_used,
                         "taskPhase": str(getattr(self.planner.tasks, "phase", "unknown")),
                         "taskCommandSteps": getattr(self.planner.tasks, "command_steps", 0),
                         "failedBuildSites": [[p.x,p.y] for p in sorted(self.state.failed_build_sites)][:32],
@@ -128,7 +140,8 @@ class AgentEngine:
             elif not any(r.pos and r.pos.distance_to(weapon.pos)<=weapon.attack_range for r in threats):
                 reason = "out_of_range"
             else:
-                reason = "allocation_or_validation"
+                controllers={command.get('controllerId') for command in response['roleCommandMap'].values() if command.get('action')=='attack'}
+                reason = 'shared_controller_busy' if any(r.unit_id in controllers and r.pos and r.pos.distance_to(weapon.pos)<=1 for r in turn.controllable) else "allocation_or_validation"
             result.append([weapon.role_type,[weapon.pos.x,weapon.pos.y],reason])
         return result
 

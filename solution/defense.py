@@ -32,35 +32,18 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
     ymax = max(pos.y for pos in normalized_station)
     mid_y = (ymin + ymax) // 2
 
-    # The map's blue ring is distance 1 from the entire 2x2 base footprint;
-    # yellow wall cells are distance 2.  Normalized threat is from positive x.
-    weapon_norm = (
-        Pos(xmin - 1, ymin - 1),
-        Pos(xmin - 1, ymin),
-        Pos(xmin - 1, ymax + 1),
-        Pos(xmin, ymax + 1),
-        Pos(xmax, ymin - 1),
-        Pos(xmax, ymax + 1),
-        Pos(xmax + 1, ymin - 1),
-        Pos(xmax + 1, ymax + 1),
-        Pos(xmax + 1, ymin),
-        Pos(xmax + 1, ymax),
-    )
-    front_x = xmax + 2
-    # Build the centre of the front face first, then extend it and add side
-    # protection.  A partial rear face is allowed, but the two central rear
-    # lanes below are never candidates for a wall.
-    front_order = (mid_y, ymax, ymin, ymax + 1, ymin - 1, ymax + 2, ymin - 2)
-    first_layer = tuple(Pos(front_x, y) for y in front_order)
-    side_faces = tuple(
-        Pos(x, y)
-        for x in range(front_x - 1, xmin - 2, -1)
-        for y in (ymin - 2, ymax + 2)
-    )
-    rear_face = tuple(Pos(xmin - 2, y) for y in (ymin - 2, ymin - 1, ymax + 1, ymax + 2))
-    wall_norm = first_layer + side_faces + rear_face
-    if conservative:
-        wall_norm = rear_face + first_layer + side_faces
+    # Diagram rows run front -> rear, columns left -> right. One rotation
+    # maps the requested 4x4 numbering to either actual map side.
+    def diagram(number):
+        row,col=divmod(number-1,4)
+        return Pos(xmax+1-row,ymax+1-col)
+    weapon_norm = tuple(diagram(n) for n in (12,14,15)) + tuple(diagram(n) for n in (5,9,8,4,3,2,1))
+    front_x=xmax+2
+    first_layer=tuple(Pos(front_x,ymax+2-(n-1)) for n in (3,4,2,1,5,6))
+    side_faces=tuple(Pos(x,y) for x in range(front_x-1,xmin-2,-1) for y in (ymin-2,ymax+2))
+    rear_face=tuple(Pos(xmin-2,y) for y in (ymin-2,ymax+2))
+    wall_norm=first_layer+side_faces+rear_face
+    if conservative:wall_norm=rear_face+first_layer+side_faces
 
     neutral = {frame.normalize(zone.pos) for zone in turn.map_info.zones if zone.pos is not None}
 
@@ -68,10 +51,7 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         raw = frame.denormalize(pos)
         return turn.map_info.contains(raw) and pos not in normalized_station and pos not in neutral
 
-    rear_lanes = (mid_y, min(mid_y + 1, ymax))
-    # Two permanent OUTER gates; retain one inner passage above the railgun.
-    # Reserving both inner cells previously pushed the middle gun onto a flank.
-    corridor_candidates = tuple(Pos(xmin - 2, y) for y in rear_lanes) + (Pos(xmin - 1, ymax),)
+    corridor_candidates=tuple(Pos(xmin-2,y) for y in range(ymin-1,ymax+2))
     corridor_norm = tuple(pos for pos in corridor_candidates if legal_normalized(pos))
     # On an unexpectedly edge-hugging map retain a two-cell side opening.  This
     # is a compatibility fallback, not a second side-specific strategy.
@@ -104,7 +84,10 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         for pos in corridor_norm
         if turn.map_info.contains(frame.denormalize(pos))
     )
-    controller_sites = _controller_sites(turn, weapon_sites, rear_corridor, wall_sites)
+    shared=frame.denormalize(diagram(16))
+    single=frame.denormalize(Pos(xmin-2,ymax))
+    slots=(shared,single,shared)
+    controller_sites = slots if all(turn.map_info.contains(p) and p not in weapon_sites[:3] and p not in wall_sites for p in slots) else _controller_sites(turn,weapon_sites,rear_corridor,wall_sites)
     return DefenseLayout(
         frame=frame,
         weapon_sites=weapon_sites,
@@ -194,7 +177,7 @@ def _controller_sites(
             if turn.map_info.contains(pos)
             and pos not in blocked
             and pos not in result
-            and pos not in corridor
+            and (len(rear_corridor)>=4 or pos not in corridor)
         ]
         candidates.sort(
             key=lambda pos: (

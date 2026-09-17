@@ -123,7 +123,7 @@ class OpeningRegressionTests(unittest.TestCase):
                         self.assertEqual(sum(u["roleType"] in {"rocket", "railgun"} for u in world.roles), 3)
                 self.assertTrue(all(ok for _, _, ok in world.build_attempts))
                 counts = Counter(u["roleType"] for u in world.roles)
-                self.assertEqual((counts["rocket"], counts["railgun"]), (2, 1))
+                self.assertEqual((counts["rocket"], counts["railgun"]), (3, 0))
                 self.assertGreaterEqual(counts["wall"], 10)
                 from solution.combat import assign_controllers
                 turn = Turn.from_raw(world.request(70))

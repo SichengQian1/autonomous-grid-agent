@@ -85,3 +85,13 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - Missing optional fields use explicit defaults.
 - Strategy produces internal actions; only the protocol layer creates response JSON.
 - All high-risk strategies remain configurable until supported by repeatable evidence.
+
+## v0.9 task evidence and shared control
+
+TaskContext owns one task; TaskSeries keeps bounded match-local method templates
+with observed/executed/platform-full provenance and explicit fresh binding checks.
+The API executor is transported into the sandbox alongside repair procedures.
+TaskAudit emits separately budgeted, redacted evidence and attributes task income
+against successful economic actions. The engine isolates audit failures from game
+responses. Defense assignment may share a controller across two compatible rockets,
+while combat and validation still enforce one weapon action per role per turn.

@@ -17,6 +17,8 @@ from .movement import MoveIntent
 from .rules import StrategyConfig
 from .state import LlmBudget, WorldState
 from .task_programs import procedure_command
+from .task_series import TaskSeries
+from .task_audit import TaskAudit, task_category
 from .task_context import TaskContext
 from .task_answers import answer_fingerprint, shape_error
 from .travel import TravelBudget
@@ -185,14 +187,14 @@ def sandbox_category(result: SandboxResult) -> str:
     return result.status
 
 
-def task_probe_command(task_text: str) -> str:
+def task_probe_command(task_text: str, task_id: str = "") -> str:
     """Inspect a filename explicitly named by a platform task."""
 
     match = re.search(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+\.(?:md|txt|json|ya?ml))(?![A-Za-z0-9_.-])", task_text)
     if match is None:
         return ""
     # Plain labels remain visible for diagnostics; actual options are encoded safely.
-    command = procedure_command({"kind": "inspect", "filename": match[1]})
+    command = procedure_command({"kind": "inspect", "filename": match[1], "task_id":task_id})
     return command + " # /tmp/selfEvolutionTask " + match[1]
 
 
@@ -238,8 +240,12 @@ class TaskManager:
     rejected_answers: set[str] = field(default_factory=set)
     last_answer_hash: str = ''
     task_stage: str = 'idle'
+    series: TaskSeries = field(default_factory=TaskSeries)
+    audit: TaskAudit = field(default_factory=TaskAudit)
 
     def reset(self, generation: int) -> None:
+        self.series = TaskSeries()
+        self.audit = TaskAudit()
         self.phase = TaskPhase.IDLE
         self.task_position = None
         self.accepted_round = None
@@ -440,7 +446,19 @@ class TaskManager:
                 f"status={result.status}; exitCode={result.exit_code}; truncated={result.truncated}\n"
                 + result.output.strip()
             )[: config.task_command_output_limit]
-            self.context.ingest(parse_structured_llm(result.output), result.output, result.status == "ok" and not result.truncated)
+            payload=parse_structured_llm(result.output)
+            envelope=payload.get('procedure_result',{}) if isinstance(payload,dict) else {}
+            if not envelope:envelope={'output':result.output,'exitCode':result.exit_code,'ok':result.status=='ok','status':self.command_category}
+            expected=self.audit.active['task_id'] if self.audit.active else None
+            if envelope.get('task_id') and expected and envelope['task_id']!=expected:
+                self.diagnostic='stale_task_result';self.phase=TaskPhase.WAITING_SYNTHESIS
+                self.pending_procedure=False
+                return AdvancedPlan()
+            try:
+                self.audit.execution(turn,self.context.last_plan,envelope,self.series)
+            except Exception:
+                self.audit.dropped+=1
+            self.context.ingest(payload, result.output, result.status == "ok" and not result.truncated)
             recovery = {
                 'missing_file': 'Use the returned files and workspace. Paths are root-relative in files; commands run in workspace. Confirm the exact file once, do not repeat the missing path.',
                 'syntax_error': 'Fix the reported syntax in the existing program; retain documents and data.',
@@ -473,7 +491,7 @@ class TaskManager:
             if turn.llm_response
             else ""
         )
-        if llm_signature and llm_signature != self.last_llm_signature:
+        if llm_signature and llm_signature != self.last_llm_signature and (not self.audit.active or self.llm_requested_round is not None):
             self.last_llm_signature = llm_signature
             parsed = parse_structured_llm(turn.llm_response)
             if parsed is not None:
@@ -486,12 +504,28 @@ class TaskManager:
                 if isinstance(procedure, dict):
                     procedure = dict(procedure)
                     required=procedure.get('required')
-                    if (isinstance(required,dict) and len(required)<=64 and all(isinstance(k,str) and isinstance(v,str) for k,v in required.items())) or (isinstance(required,str) and required in {'string','integer','number','boolean','array','object','null'}):
+                    if (isinstance(required,dict) and len(required)<=64 and all(isinstance(k,str) and isinstance(v,(str,dict,list)) for k,v in required.items())) or (isinstance(required,str) and required in {'string','integer','number','boolean','array','object','null'}):
                         self.context.required=required
                     elif self.context.required and procedure.get('kind') in {'python','script','api'}:
                         procedure['required']=self.context.required
                     if self.context.resolved and procedure.get("kind") in {"repair","script","python","inspect"}:
                         procedure.setdefault("cwd", self.context.workspace)
+                    if self.audit.active:
+                        try:
+                            procedure=self.series.prepare(procedure,self.audit.active['task_id'],self.audit.active['task_type'])
+                        except ValueError as error:
+                            self.feedback_hint=str(error)+': reread current requirements and supply a fresh complete plan.'
+                            self.reject_reason=str(error)
+                            self.phase=TaskPhase.WAITING_SYNTHESIS
+                            return AdvancedPlan()
+                    if self.audit.active:
+                        procedure['cache_namespace']=self.audit.redactor.salt
+                    if self.audit.active and self.audit.active['task_type']==1 and procedure.get('kind')=='api':
+                        procedure['require_filter']=True
+                        if not procedure.get('required'):
+                            self.feedback_hint='API answer contract missing; extract current fields/types from the task before execution.'
+                            self.phase=TaskPhase.WAITING_SYNTHESIS
+                            return AdvancedPlan()
                     command = procedure_command(procedure)
                     if procedure.get('kind')=='inspect' and turns_left<=config.task_finish_reserve:
                         command=''
@@ -499,6 +533,16 @@ class TaskManager:
                 else:
                     command = safe_task_command(requested, self.context.workspace if self.context.resolved else None)
                 answer = parsed.get("answer")
+                if answer is not None and self.audit.active and self.audit.active['task_type']==2:
+                    def leaves(value):
+                        if isinstance(value,dict):return [x for v in value.values() for x in leaves(v)]
+                        if isinstance(value,list):return [x for v in value for x in leaves(v)]
+                        return [str(value)]
+                    proof_values=leaves(answer)
+                    if not proof_values or not all(v and (v in self.command_output or json.dumps(v)[1:-1] in self.command_output) for v in proof_values):
+                        answer=None;self.feedback_hint='Repair proof must occur in this task latest real checker output; run/extract checker, never infer a proof.'
+                        self.diagnostic='proof_without_current_output'
+
                 program=procedure if isinstance(procedure,dict) else {'command':requested}
                 duplicate=bool(command) and answer_fingerprint(program) in self.context.failed_programs
                 if duplicate:
@@ -550,7 +594,7 @@ class TaskManager:
             return AdvancedPlan()
         # A structurally complete computed candidate can salvage partial credit at
         # the deadline. It is explicitly not counted as a checked solution.
-        if not self.pending_answer and turns_left <= config.task_partial_answer_turns and self.context.schema_pass and self.context.candidate is not None and not self.context.failed_execution:
+        if not self.pending_answer and turns_left <= config.task_partial_answer_turns and self.context.schema_pass and self.context.candidate is not None and (not self.context.failed_execution or self.context.candidate_failure in {'verification_failed','verification_missing_assert','incomplete_pages','filter_unconfirmed','field_unverified'}):
             self.pending_answer=json.dumps(self.context.candidate,ensure_ascii=False)
             self.diagnostic='deadline_candidate'
         if self.pending_answer and self.last_submit_round != turn.round_no:
@@ -587,7 +631,7 @@ class TaskManager:
             else:
                 return AdvancedPlan()
         if self.command_steps == 0:
-            probe = safe_task_command(task_probe_command(turn.phase_task))
+            probe = safe_task_command(task_probe_command(turn.phase_task,self.audit.active['task_id'] if self.audit.active else ''))
             if probe:
                 self.command_steps = 1
                 self.phase = TaskPhase.WAITING_COMMAND
@@ -606,7 +650,7 @@ class TaskManager:
                 self.command_kind='inspect'
                 self.task_stage='read'
                 return AdvancedPlan(execute_command=procedure_command({'kind':'inspect','cwd':self.context.workspace,
-                    'paths':[name],'offsets':{name:offset}}))
+                    'paths':[name],'offsets':{name:offset},'task_id':self.audit.active['task_id'] if self.audit.active else ''}))
         if turn.round_no - self.last_progress_round >= config.task_stall_limit:
             self.feedback_hint = "No actionable progress. Return one valid procedure or an evidence-backed answer, no markdown commentary. " + self.feedback_hint[-250:]
             self.diagnostic = "stalled_" + self.diagnostic.removeprefix("stalled_")
@@ -629,10 +673,11 @@ class TaskManager:
             )
             return AdvancedPlan(
                 prompt=(
+                    self._sop_prompt(turn) +
                     "Solve the active task using the supplied evidence. Return strict JSON only: "
                     '{"answer":"final answer"} or {"command":"sandbox shell command"} or {"script":"multiline shell/Python heredoc script"} or {"python":"Python source","submit_result":true,"required":{"field":"integer"},"verify":"assert answer[...] == independently_computed_value"} or {"procedure":{...}}. '
                     "Use either a final answer or one necessary command, never prose outside JSON. "
-                    "Prefer python source for calculations and API work: it avoids shell quoting. "
+                    "Use the declared API executor for compatible API statistics; use Python only for requirements it cannot express, explaining the missing capability. "
                     "For script/python automatic submission, include required field types derived from the task and a separate verify Python program executing meaningful assert expressions referencing answer. It runs with variable answer and the same cwd. Re-read input or check independent invariants; never assert a guessed constant or merely True. Both run in one sandbox call. Exit zero plus JSON alone is not verification. "
                     "Do not set it for inspection or intermediate data. A procedure script/python also supports submit_result and answer_path. "
                     "Preserve the required answer keys and types: answer may be a JSON object. "
@@ -643,7 +688,7 @@ class TaskManager:
                     "inspect={kind:inspect,paths:[relative_file,...]} reads additional source files if needed. "
                     "api={kind:api,url:http_loopback_url,headers:{},query:{},records_path:JSON.path,pagination:{parameter,start,step,size,size_parameter,total_path,id_path},"
                     "fields:{answer_key:{op:count|count_equal|unique|sum|min_by|max_by|constant,path,value,value_path,flatten}}}. "
-                    "Edit/inspect paths in documents are relative to /tmp/selfEvolutionTask. Shell commands already run inside the discovered workspace; do not guess paths or search the whole filesystem. "
+                    "Distinguish document directory, project cwd, specification files and checker. A discovered document directory is not proof of project cwd. Bind paths using the actual file inventory; never search outside the task root. "
                     "Repair cwd defaults to that workspace. Use actual documented field names, types and authentication. "
                     "For code repair inspect the actual source, apply a unique replacement, run the provided checker and select its answer object. "
                     "For a checker returning text, repair supports answer_format=text and answer_pattern with a single capture from its real output. Do not change the checker to force a pass. "
@@ -660,6 +705,34 @@ class TaskManager:
                 )
             )
         return AdvancedPlan()
+
+    def _sop_prompt(self, turn):
+        category=self.audit.active['task_type'] if self.audit.active else task_category(turn,self.task_position)
+        methods=self.series.prompt(category)
+        common=(f"SOP v09. Task category={category}. Match-local methods with evidence levels: {methods}. "
+            "These are methods, never current answers or credentials. Re-read current requirements. "
+            "To save/reuse a method attach compatibility:{contract:<answer-field/type signature>,schema:<documented response/project schema version>}. "
+            "Only use reuse:true after checking these against current docs. Changes require a fresh plan. "
+            "Observed/executed methods are provisional; only platform_full has full-task feedback. ")
+        if category==1:
+            return common+("API SOP: identify object, current service/auth, records path, stable id, filter field and current value, "
+                "pagination end protocol, field semantics and era ordering. Prefer procedure kind:api. "
+                "Bind url/query/headers freshly. Supply filter:{path:<record object field>,value:<current query object>,echo_path:<optional metadata echo>} "
+                "and required from CURRENT docs. Five known contract fields when confirmed by docs: city,total_count,world_heritage_count,types,oldest_era. "
+                "Use pagination:{parameter,start,step,size,size_parameter,id_path,total_path,mode:page|cursor,next_path,end_path,end_value,empty_is_end}. "
+                "Only use empty_is_end/unpaginated:true if documentation or actual protocol supports it. Never infer completeness from page size. "
+                "fields supports constant (source:requirement), count, count_equal, unique(sort:ascending|descending,flatten), sum, min_by/max_by "
+                "(comparison:numeric|ordered|era|lexical; order:list for ordered; pattern/year_group/era_group/before_labels for era; value_path). "
+                "Oldest era is semantic, not lexical by default. Inspect real response errors/structure then correct affected bindings only. "
+                "For reuse:true supply fresh url,query,filter,required,fields constant bindings; compatible aggregate/pagination methods are filled automatically. ")
+        if category==2:
+            return common+("REPAIR SOP: resolve document directory separately from project cwd; inspect spec and actual files once. "
+                "Use procedure repair with explicit cwd, unique edits and actual check argv (local executable scripts supported). "
+                "Never modify the checker. A failed checker and a checker that could not launch require different recovery. "
+                "Extract this task's real proof via answer_path or answer_format:text plus one capture answer_pattern. "
+                "A successful real checker with current proof submits immediately, without statistics assertions. "
+                "For reusable extraction use reuse:true with NEW cwd/check/edits and current compatibility. Never copy configuration values/proofs. ")
+        return common
 
     @staticmethod
     def _choose_task(turn: Turn, pioneer: Unit, config: StrategyConfig, cooldowns: dict[Pos, int] | None = None) -> PlayerTask | None:

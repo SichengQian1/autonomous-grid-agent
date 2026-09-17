@@ -29,6 +29,7 @@ from .opponent import OpponentModel, StrategyMode, choose_mode, desired_boss_ord
 from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
 from .travel import TravelBudget
+from .maintenance import support_plan
 from .tasking import AdvancedPlan, TaskManager, TreasureKnowledge, parse_structured_llm
 
 
@@ -265,6 +266,9 @@ class CompetitionPlanner:
                     used.add(worker.unit_id)
 
             advanced = AdvancedPlan()
+            if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task and turn.day_index>=2:
+                purchase=self.logistics.plan(turn,pioneer,budget,config)
+                self._merge_advanced(purchase,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used:
                 advanced = self._safe_task_plan(
                     turn,
@@ -328,7 +332,10 @@ class CompetitionPlanner:
                 self.news_prompt_source = latest_news[1]
                 self.news_prompt_day = max(latest_news[0]-1,0)//ROUNDS_PER_DAY+1
 
-            for worker in workers:
+            shop_grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+            shop_goals=tuple(p for shop in turn.zone_positions('weaponShop') for p in interaction_cells(shop_grid,shop))
+            shop_dist=distance_field(shop_grid,shop_goals) if shop_goals else {}
+            for worker in sorted(workers,key=lambda w:shop_dist.get(w.pos,10000)):
                 if worker.unit_id not in used:
                     logistics = self.logistics.plan(turn, worker, budget, config)
                     if logistics.action is not None:
@@ -365,7 +372,7 @@ class CompetitionPlanner:
         # Keep cooling launchers assigned: otherwise their operators leave to mine
         # and cannot fire when cooldown expires. Release after our wave is clear.
         combat_weapons = weapons
-        assignments = assign_controllers(turn, combat_weapons)
+        assignments = assign_controllers(turn, combat_weapons,config)
         assignments = tuple(
             sorted(
                 assignments,
@@ -384,6 +391,7 @@ class CompetitionPlanner:
                 ),
             )
         )
+        shared_control=len({a.controller.unit_id for a in assignments})<len(assignments)
         needed = len(assignments) if threats else 0
         active_assignments = assignments[:needed]
         attack_targets = threats
@@ -396,21 +404,29 @@ class CompetitionPlanner:
             )
             active_assignments = assignments[: min(len(assignments), 1 if attack_targets else 0)]
 
-        actions = list(plan_attacks(turn, active_assignments, attack_targets))
-        used_controllers = {
-            action.controller_id for action in actions if action.controller_id is not None
-        }
+        actions=[]
+        upgrading=set();upgraded_targets=set()
+        min_level=min((w.level for w in weapons),default=3)
+        for role in turn.controllable:
+            adjacent=sorted((w for w in weapons if role.pos and w.pos and role.pos.distance_to(w.pos)<=1 and w.level==min_level and w.level<3 and w.unit_id not in upgraded_targets),key=lambda w:w.unit_id)
+            for weapon in adjacent:
+                item=f'WeaponUpgradeVoucher{weapon.level}'
+                if item in role.backpack:
+                    actions.append(Action(role.unit_id,ActionType.USE,name=item,targets=(weapon.pos,)))
+                    upgrading.add(role.unit_id);upgraded_targets.add(weapon.unit_id);break
+        actions.extend(plan_attacks(turn,tuple(a for a in active_assignments if a.controller.unit_id not in upgrading),attack_targets))
+        used_controllers = {action.controller_id for action in actions if action.controller_id is not None} | upgrading
         intents: list[MoveIntent] = []
         for assignment in active_assignments:
             if assignment.controller.unit_id in used_controllers:
                 continue
             if assignment.weapon.pos is None or assignment.controller.pos is None:
                 continue
-            if assignment.controller.pos.distance_to(assignment.weapon.pos) > 1:
+            if (shared_control and assignment.control_pos is not None and assignment.controller.pos!=assignment.control_pos) or assignment.controller.pos.distance_to(assignment.weapon.pos) > 1:
                 intents.append(
                     MoveIntent(
                         assignment.controller.unit_id,
-                        self._interaction_goals(turn, assignment.controller, assignment.weapon.pos),
+                        (assignment.control_pos,) if assignment.control_pos else self._interaction_goals(turn, assignment.controller, assignment.weapon.pos),
                         priority=120,
                     )
                 )
@@ -428,7 +444,7 @@ class CompetitionPlanner:
         # An available shot always takes priority over this maintenance action.
         firing_controllers={a.controller_id for a in actions if a.action_type==ActionType.ATTACK}
         for assignment in active_assignments:
-            if assignment.controller.unit_id in firing_controllers:
+            if assignment.controller.unit_id in firing_controllers or assignment.controller.unit_id in upgrading:
                 continue
             role = assignment.controller
             if role.pos is None or role.pos.distance_to(assignment.weapon.pos)>1:
@@ -475,6 +491,10 @@ class CompetitionPlanner:
                 if pioneer.unit_id not in used_controllers:
                     treasure = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure, actions, intents, used_controllers)
+            for role in released:
+                if turn.day_index>=config.night_support_day and threats and role.unit_id not in used_controllers:
+                    support=support_plan(turn,role,config,threats)
+                    self._merge_advanced(support,actions,intents,used_controllers)
             for role in sorted(released,key=lambda r:r.role_type!=ROLE_PIONEER):
                 if role.unit_id in used_controllers:
                     continue
@@ -491,7 +511,7 @@ class CompetitionPlanner:
             if pioneer is not None and pioneer.unit_id not in used_controllers:
                 self._stage_idle_pioneer(turn,pioneer,config,intents,used_controllers)
             for worker in released:
-                if not threats and worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
+                if (not threats or turn.day_index<config.night_support_day) and worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers, state, config, budget)
 
         moves = schedule_moves(turn, intents)
@@ -602,6 +622,7 @@ class CompetitionPlanner:
     def _controller_intents(turn: Turn, priority: int) -> list[MoveIntent]:
         result: list[MoveIntent] = []
         for assignment in assign_controllers(turn, existing_weapons(turn)):
+            if any(i.actor_id==assignment.controller.unit_id for i in result):continue
             if assignment.weapon.pos is None or assignment.controller.pos is None:
                 continue
             if assignment.control_pos is not None:
@@ -627,8 +648,8 @@ class CompetitionPlanner:
         station = turn.team_our.station()
         if station is not None:
             home = tuple(dict.fromkeys(p for cell in station.footprint() for p in interaction_cells(grid,cell)))
-            intents.extend(MoveIntent(role.unit_id,home,110) for role in turn.controllable
-                           if role.unit_id not in assigned and role.pos is not None)
+            intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config).goals or home,110) for role in turn.controllable
+                           if role.unit_id not in assigned and role.pos is not None and (turn.day_index>=config.night_support_day or role.role_type!=ROLE_WORKER or any(i.startswith('WeaponUpgradeVoucher') for i in role.backpack)))
         result = []
         for intent in intents:
             role = turn.team_our.unit(intent.actor_id)

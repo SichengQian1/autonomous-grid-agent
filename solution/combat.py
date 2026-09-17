@@ -7,8 +7,8 @@ from .actions import Action, ActionType
 from .geometry import Pos
 from .models import Robot, Turn, Unit
 from .grid import OccupancyGrid, distance_field, interaction_cells
-from .defense import build_defense_layout
-from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET
+from .defense import build_defense_layout, _controller_sites
+from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET, DEFAULT_CONFIG
 
 
 ROBOT_SCORE = {
@@ -32,13 +32,28 @@ class ControllerAssignment:
     control_pos: Pos | None = None
 
 
-def assign_controllers(turn: Turn, weapons: tuple[Unit, ...]) -> tuple[ControllerAssignment, ...]:
+def assign_controllers(turn: Turn, weapons: tuple[Unit, ...], config=DEFAULT_CONFIG) -> tuple[ControllerAssignment, ...]:
     available = tuple(sorted((r for r in turn.controllable if r.pos is not None), key=lambda r:r.unit_id))[:3]
     ordered = tuple(sorted((w for w in weapons if w.pos is not None), key=lambda w:(w.role_type != ROLE_ROCKET,w.unit_id)))[:len(available)]
     if not ordered:
         return ()
     layout = build_defense_layout(turn)
-    slots = dict(zip(layout.weapon_sites[:3], layout.controller_sites)) if len(layout.controller_sites) == 3 else {}
+    if config.shared_rocket_control and len(weapons)==3 and all(w.role_type==ROLE_ROCKET for w in weapons) and len(available)>=2:
+        slots_by_weapon=dict(zip(layout.weapon_sites[:3],layout.controller_sites))
+        if all(w.pos in slots_by_weapon for w in weapons) and len(set(slots_by_weapon.values()))==2:
+            posts=tuple(dict.fromkeys(slots_by_weapon.values()))
+            grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in available))
+            maps={r.unit_id:distance_field(grid,(r.pos,)) for r in available}
+            def joint_cost(roles):
+                distances=[maps[r.unit_id].get(p,10000) for r,p in zip(roles,posts)]
+                support_penalty=(8 if all(r.role_type=="worker" for r in roles) and not turn.phase_task else 0)+sum(12 for r in roles if turn.day_index>=config.night_support_day and any(i=='WallFixer' or i.startswith('WallUpgradeVoucher') for i in r.backpack))
+                return (sum(d>=10000 for d in distances),max(distances)+support_penalty,sum(distances),tuple(r.unit_id for r in roles))
+            chosen=min(permutations(available,2),key=joint_cost)
+            by_post=dict(zip(posts,chosen))
+            return tuple(ControllerAssignment(w,by_post[slots_by_weapon[w.pos]],slots_by_weapon[w.pos]) for w in weapons)
+    actual=tuple(w.pos for w in ordered)
+    controls=_controller_sites(turn,actual,layout.rear_corridor,layout.wall_sites)
+    slots=dict(zip(actual,controls)) if len(controls)==len(actual) else {}
     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in available))
     maps = {r.unit_id: distance_field(grid, (r.pos,)) for r in available}
     goals = {w.unit_id: ((slots[w.pos],) if w.pos in slots else interaction_cells(grid, w.pos)) for w in ordered}
@@ -70,10 +85,12 @@ def plan_attacks(
 ) -> tuple[Action, ...]:
     projected = {robot.robot_id: robot.health for robot in robots}
     actions: list[Action] = []
+    used=set()
     for assignment in sorted(assignments, key=lambda item: _weapon_priority(item.weapon)):
         weapon, controller = assignment.weapon, assignment.controller
         if (
-            weapon.pos is None
+            controller.unit_id in used
+            or weapon.pos is None
             or controller.pos is None
             or controller.pos.distance_to(weapon.pos) > 1
             or (weapon.role_type == ROLE_ROCKET and weapon.cooldown > 0)
@@ -98,7 +115,8 @@ def plan_attacks(
                 targets=targets,
             )
         )
-        _apply_projected_damage(weapon, targets, in_range, projected)
+        used.add(controller.unit_id)
+        _apply_projected_damage(weapon, targets, robots, projected)
     return tuple(actions)
 
 
@@ -146,7 +164,7 @@ def _targets_for_weapon(
             }
             if not candidates:
                 break
-            best = max(candidates, key=lambda pos: _rocket_value(pos, robots, working, turn))
+            best = max(candidates, key=lambda pos: _rocket_value(pos, robots, working, turn, weapon))
             centers.append(best)
             _apply_rocket_projection(best, robots, working, weapon)
         return tuple(centers)
@@ -188,6 +206,7 @@ def _rocket_value(
     robots: tuple[Robot, ...],
     projected: dict[int, int],
     turn: Turn,
+    weapon: Unit | None = None,
 ) -> float:
     value = 0.0
     for robot in robots:
@@ -195,9 +214,16 @@ def _rocket_value(
             continue
         distance = center.distance_to(robot.pos)
         if distance <= 1:
-            damage = 20 if distance == 0 else 10
-            value += min(damage, projected[robot.robot_id]) * 2
-            value += _threat_score(turn, robot, projected[robot.robot_id])
+            power=(weapon.attack_power if weapon.attack_power>0 else 20) if weapon else 20
+            damage=power if distance==0 else max(1,power//2)
+            hp=projected[robot.robot_id]
+            station=turn.team_our.station()
+            urgent=bool(station and robot.pos and station.health<500 and min(robot.pos.distance_to(p) for p in station.footprint())<=(robot.attack_range or DEFAULT_CONFIG.robot_attack_range_fallback)+1)
+            small=robot.role_type in ('smallRobot','middleRobot')
+            value+=min(damage,hp)*(5 if small else 1)
+            value+=(140 if small else 45) if hp<=damage else 0
+            value+=_threat_score(turn,robot,hp)*(3 if urgent else 0.12)
+            value-=max(0,damage-hp)*0.5
     return value
 
 
@@ -244,8 +270,8 @@ def _apply_rocket_projection(
     projected: dict[int, int],
     weapon: Unit,
 ) -> None:
-    center_damage = max(weapon.attack_power, 20)
-    splash_damage = max(10, center_damage // 2)
+    center_damage = weapon.attack_power if weapon.attack_power>0 else 20
+    splash_damage = max(1, center_damage // 2)
     for robot in robots:
         if robot.pos is None:
             continue

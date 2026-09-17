@@ -162,7 +162,8 @@ class TaskEvidenceTests(unittest.TestCase):
                 code='print(\'{"total":999}\')', submit_result=True,
                 required={'total': 'integer'}, verify='assert answer["total"] == 17'))
             self.assertFalse(result['ok'])
-            self.assertNotIn('answer', result)
+            self.assertIn('answer', result)
+        self.assertFalse(result.get('checked',False))
 
     def test_schema_rejects_missing_field_before_verification(self):
         with tempfile.TemporaryDirectory() as root:
@@ -216,13 +217,13 @@ class DevelopmentTests(unittest.TestCase):
         plan=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,150,12),DEFAULT_CONFIG)
         self.assertEqual(plan.action.name,'WeaponUpgradeVoucher2')
 
-    def test_first_advanced_rocket_then_key_walls_then_second_rocket(self):
+    def test_remaining_weapons_precede_key_walls(self):
         raw=self.ready();raw['roundNo']=410
         rocket=next(u for u in raw['teamOur']['roles'] if u['roleType']=='rocket');rocket['level']=3
         raw['teamOur']['roles'].append(role(60,'wall',8,10,health=1500,level=2))
         raw['weaponShopList'].append({'name':'WallUpgradeVoucher2','price':30})
         turn=Turn.from_raw(raw)
-        self.assertEqual(next_development_target(turn,DEFAULT_CONFIG).role_type,'wall')
+        self.assertEqual(next_development_target(turn,DEFAULT_CONFIG).role_type,'rocket')
 
     def test_other_workers_stock_does_not_trigger_one_ore_sale(self):
         from solution.economy import EconomyManager
