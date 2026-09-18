@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass,field
 from pathlib import PurePosixPath
 from .task_answers import answer_fingerprint
+from .task_contracts import current_contract
+from copy import deepcopy
 
 @dataclass(slots=True)
 class TaskContext:
@@ -26,6 +28,40 @@ class TaskContext:
     last_plan: dict = field(default_factory=dict)
     failed_programs: set[str] = field(default_factory=set)
     last_program: str = ''
+    contract_source: dict = field(default_factory=dict)
+    api_bindings: dict = field(default_factory=dict)
+    api_verified: bool = False
+    rejected_plans: dict = field(default_factory=dict)
+    blocked_plan: dict = field(default_factory=dict)
+
+    def derive_contract(self, task_text=''):
+        docs=dict(self.documents)
+        if task_text:docs['current_requirement']=task_text
+        required,source=current_contract(docs)
+        if required:
+            self.required=required;self.contract_source=source
+        elif source:
+            if self.contract_source.get('status')=='document_contract':self.required={}
+            self.contract_source=source
+        return required
+
+    def keep_api_progress(self, plan, result):
+        if plan.get('kind')!='api':return
+        requests=result.get('evidence',{}).get('requests',[])
+        if result.get('status')=='authentication_failed':self.api_bindings={}
+        elif requests and any(r.get('status')==200 for r in requests):
+            self.api_bindings={k:deepcopy(plan[k]) for k in ('url','headers','method','query','body') if k in plan}
+        self.api_verified=bool(result.get('checked') and result.get('evidence',{}).get('complete')
+                               and result.get('evidence',{}).get('filter_confirmed'))
+
+    def restore_api_progress(self, plan):
+        plan=deepcopy(plan)
+        reset=plan.pop('reset_request',False)
+        if not reset and self.api_bindings and plan.get('url')==self.api_bindings.get('url'):
+            for key in ('headers','method','body'):
+                if key in self.api_bindings:plan[key]=deepcopy(self.api_bindings[key])
+            query=deepcopy(self.api_bindings.get('query',{}));query.update(plan.get('query',{}));plan['query']=query
+        return plan
 
     def remember(self, program):
         self.last_plan=program if isinstance(program,dict) else {}
@@ -80,7 +116,8 @@ class TaskContext:
 
     def prompt(self):
         return json.dumps({'workspace':self.workspace,'documents':self.documents,'files':self.files,
-                           'incomplete_documents':self.incomplete,'required':self.required,
+                           'incomplete_documents':self.incomplete,'required':self.required,'contract_source':self.contract_source,
+                           'request_binding_preserved':bool(self.api_bindings),
                            'recovery':self.recovery,
                            'recent_execution':self.recent,'recent_programs':self.programs,
                            'workspace_files':{p:str(PurePosixPath(p).relative_to(self.workspace)) for p in self.files if PurePosixPath(p).is_relative_to(self.workspace)}},ensure_ascii=False)

@@ -97,7 +97,7 @@ class ApiSopTests(unittest.TestCase):
         self.assertEqual(result['status'],'total_mismatch')
     def test_schema_change_requests_new_binding(self):
         result,_=self.api('changed_structure');self.assertEqual(result['status'],'parse_or_compute_failed')
-        self.assertEqual(result['evidence']['requests'][0]['structure'],{'items':'list'})
+        self.assertEqual(result['evidence']['requests'][0]['structure']['items']['type'],'array')
     def test_value_type_mismatch_not_silently_zero_count(self):
         result,_=self.api('normal',fields={'count':{'op':'count_equal','path':'heritage','value':'true'}})
         self.assertEqual(result['status'],'field_value_type')

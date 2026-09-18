@@ -15,9 +15,10 @@ def summarize_tasks(events, task_id=None, detail_limit=24):
         elif kind=='submit':item['submissions']+=1
         elif kind=='end':item.update(end=event.get('r'),elapsed=event.get('elapsed'),outcome=event.get('outcome'),
             task_gold=event.get('task_gold'),commands=event.get('commands'),llm_requests=event.get('llm_requests'))
-        if kind=='execution' and event.get('status') not in ('ok','script_ok','api_checked',None):
+        if kind=='execution' and not event.get('documents') and event.get('status') not in ('ok','script_ok','api_checked','documents_read',None):
             key=str(event.get('status'))+':'+str(event.get('schema_details',{}).get('field',''))
             failures[key]+=1
+        if kind=='plan_rejected':failures['plan_rejected:'+str(event.get('reason'))]+=1
         use=event.get('reuse',{})
         if use:
             reuse[use.get('reason','unknown')]+=1

@@ -86,6 +86,7 @@ After a change:
 - `solution/tasking.py`: task, LLM, sandbox-result, and treasure state machines.
 - `solution/task_programs.py`: generic bounded sandbox procedures.
 - `solution/task_answers.py`: answer contracts and canonical rejection fingerprints.
+- `solution/task_contracts.py`: current-document shape extraction and proof packaging.
 - `solution/task_context.py`: bounded per-task documents, workspace and execution evidence.
 - `solution/task_api.py`: bounded API retrieval, completeness evidence and aggregation.
 - `solution/task_series.py`: match-local method provenance, compatibility and invalidation.
@@ -100,6 +101,91 @@ recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. A
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-18 - v0.10 task execution, checker recovery and method coverage
+
+Evidence and scope:
+
+- Started on codex/v0 at 22411cd51340481ebb49ef0134f55bfd472666a6; preserved the
+  user's pre-existing AGENTS.md edit outside the release.
+- Eight returned v0.9 runs: API tasks 0 full / 5 partial / 19 zero, repair tasks
+  7 full / 17 zero. Thirty-five of 48 tasks never submitted. Nine API tasks executed
+  only document inspection. All five partial API submissions contained empty statistics;
+  three were incorrectly considered internally checked. No method reuse was observed.
+- Repair failures included checker-launch failures with existing working directories,
+  repeated old patches after prior writes, and scalar proofs rejected until packaged
+  as required objects. Exact interpreter failures are not recoverable from older logs;
+  CRLF is a reproduced possible cause, not a confirmed explanation of every incident.
+- This release changes task execution and diagnostics only. Weapon composition, layout,
+  combat priorities, worker/procurement policy and the HTTP/protocol boundary are retained.
+
+Changes:
+
+1. Derive answer shapes from current explicitly labeled JSON examples, JSON Schema
+   or field/type rows. Ignore example values; conflicting requirements require
+   clarification. Preserve rejected API plans and request only the missing contract,
+   with explicit rejection events and a bounded correction cycle. Complete API prompt
+   examples include the required contract/filter fields.
+2. Keep current-task headers, method and body after HTTP 200 while correcting data
+   interpretation; explicit reset remains available and authentication failure clears
+   that state. Recover a unique nested record array only when the current filter checks
+   against its actual rows; pagination and completeness validation still apply.
+3. Generic Python statistics without executor retrieval evidence cannot fast-submit
+   as checked. Retain valid computed candidates for deadline partial credit; preserve
+   separate failed-business-assertion handling. This may delay a valid custom solver,
+   so measure unsupported task variants rather than silently trusting empty data.
+4. Record applied-patch receipts keyed to the task and content fingerprints. A retry
+   skips only confirmed prior writes; changed files and new tasks invalidate receipts.
+   Checker evidence includes launch stage, errno, entry/working-directory checks and
+   interpreter availability. Recognized shell/Python shebang issues can use explicit
+   interpreter invocation without modifying the checker. Do not infer a pass from launch.
+5. Separate proof extraction from the current submission contract. Repair procedures
+   package scalar proofs before schema validation; ordinary successful scripts can
+   supply explicit JSON or a uniquely labeled current proof without another LLM call.
+   Explicit checker failure blocks extraction. Arbitrary stdout is not a proof.
+6. Ordinary-script proof workflows now enter match-local provenance tracking, including
+   current contract, extraction style and abstract steps, excluding source, paths,
+   patch values and proof values. Compatible later-task extraction can actually use
+   that method. API procedures can derive compatibility from current bindings rather
+   than requiring the model to author the metadata. Partial outcomes remain provisional.
+7. Add plan rejection, independent verifier snippets, patch application flags and
+   checker-start details to sanitized diagnostics. Preserve safe protocol schema keys,
+   explicitly mark masked program literals, and omit bulky optional details before
+   losing failure events. Document reads are no longer counted as execution failures.
+   Learning no longer depends on whether an audit event fits its logging budget.
+
+Verification:
+
+- Seven synthetic pipeline regressions were saved and failed before the implementation.
+  Added further cases for nested API records, task-local request recovery, dynamic
+  proofs across three tasks, incompatible contracts, receipt invalidation, explicit
+  checker failure, JSON Schema variants and bounded sanitized evidence.
+- 260 unittest cases passed, including both 1300-turn synthetic sides. Tests use
+  prescribed synthetic model outputs and local services, not real-model task success evidence.
+- Source and clean-archive HTTP checks passed on both sides: malformed JSON, null/list
+  fallback and 71-turn restricted opening. Three rockets, 12/13 walls and two operators
+  covering three guns; maximum observed HTTP latency 49.3 ms.
+- Runtime modules and embedded task program parse with Python 3.11 syntax rules;
+  local execution uses Python 3.14.6, not the exact target Python 3.11.10.
+- Archive contains 32 runtime files: entrypoint and 31 modules. Bytes match current
+  source, with no tests, logs, references, task data or credentials.
+- Release: `submissions/v0/submission-v0.10.tar.gz`.
+- SHA-256: `16f152d8eb12b88702a3ac9feefc95dbdc39c90b55d564e6bf8321d1c99d267b`.
+
+Remaining boundaries and next evidence:
+
+- No official match was launched. Do not claim stable API full success, three-of-three
+  repair success, higher score or better survival from synthetic tests.
+- Contract inference covers explicit supported forms; ambiguous/unrecognized prose
+  still needs the model. Actual authentication and business semantics still need
+  current documents and runtime evidence. Nested-path recovery cannot resolve ambiguity.
+- Learned ordinary-script workflows cover extraction/packaging and abstract operating
+  steps, not automatic reproduction of arbitrary project patches. Later-task reduced
+  exploration and full correctness must be measured, not inferred from a reuse counter.
+- Compare read-only/no-solver tasks, successful API retrieval, empty-result false
+  verification, checker recovery, first-attempt submission format, full/unsubmitted
+  rates by category, later-task timings and early task income. Check survival/protocol
+  regressions while keeping the unchanged defense baseline as the comparison.
 
 ### 2026-09-17 - v0.9 shared rockets, task SOPs and task evidence
 

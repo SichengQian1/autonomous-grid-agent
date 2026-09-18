@@ -82,7 +82,10 @@ class Redactor:
         if depth>3:return '<depth_limit>'
         if isinstance(value,dict):
             known={'city','total_count','world_heritage_count','types','oldest_era','answer','proof','token',
-                   'success','ok','passed','kind','procedure','command','code','script','required','verify'}
+                   'success','ok','passed','kind','procedure','command','code','script','required','verify',
+                   'url','query','headers','filter','fields','records_path','pagination','compatibility','schema','contract',
+                   'path','op','value','source','count','parameter','start','step','size','size_parameter','id_path','total_path',
+                   'cwd','edits','check','answer_path','answer_format','answer_pattern','submit_result','python','reuse'}
             return {str(k) if k in known else '<key:'+self.fingerprint(k)[:8]+'>':self.structure(v,depth+1)
                     for k,v in list(value.items())[:16]}
         if isinstance(value,list):return {'type':'array','length':len(value),'sample_types':[type(v).__name__ for v in value[:3]]}
@@ -141,6 +144,14 @@ class TaskAudit:
                'task_type':self.active['task_type'],'type_ordinal':self.active['type_ordinal'],
                'remaining':max(0,self.active['deadline']-round_no),**data}
         size=len(json.dumps(event,ensure_ascii=False).encode())
+        if size>7000 and kind=='execution':
+            omitted=[]
+            for key in ('plan_structure','program','requirements','paths','documents','api','verifier_program'):
+                if size<=7000:break
+                if key in event:
+                    event.pop(key);omitted.append(key)
+                    event['omitted_fields']=omitted
+                    size=len(json.dumps(event,ensure_ascii=False).encode())
         reserve=3000 if not critical else 1500 if kind!='end' else 0
         if size>7000 or self.used+size>self.task_limit-reserve or self.total_used+size>self.match_limit-reserve:
             self.dropped+=1;return
@@ -206,7 +217,7 @@ class TaskAudit:
               'verification_kind':result.get('verification_kind'),'answer_structure':self.redactor.structure(result.get('answer')),
               'schema_reason':result.get('reason') if result.get('status')=='answer_schema' else None,
               'schema_details':result.get('schema_details',{}),
-              'execution':{k:self.redactor.path(v) if k in ('program','cwd') else v for k,v in result.get('execution_evidence',{}).items()},
+              'execution':{k:self.redactor.path(v) if k in ('program','cwd','interpreter','failed_path') else v for k,v in result.get('execution_evidence',{}).items()},
               'requirements':plan.get('required',{}),
               'reason':result.get('reason'),
               'candidate':self.redactor.safe_answer(result.get('answer'),self.active['task_type'])}
@@ -215,6 +226,10 @@ class TaskAudit:
         safe['program']=self.redactor.program(source,[f['line'] for f in safe['output']['frames']]) if source else '<declarative>'
         if plan.get('command'):safe['command_excerpt']=self.redactor.words(str(plan['command'])[-1800:])
         safe['plan_kind']=plan.get('kind','shell_or_source')
+        safe['program_literals_masked']=True
+        if plan.get('verify'):
+            safe['verifier_program']=self.redactor.program(plan['verify'],[f['line'] for f in safe['output']['frames']])
+        safe['plan_structure']=self.redactor.structure(plan)
         safe['paths']=[{k:self.redactor.path(v) if k in ('requested','base','path','located') else v for k,v in item.items()}
                        for item in result.get('path_evidence',[])[:10]]
         safe['patches']=[{k:self.redactor.path(v) if k=='path' else v for k,v in item.items()}
@@ -232,7 +247,6 @@ class TaskAudit:
                 'next_offset':d.get('next_offset'), 'original_bytes':d.get('original_bytes'),
                 'recognized_fields':[k for k in ('city','total_count','world_heritage_count','types','oldest_era') if k in d.get('text','')]} for d in result['documents'][:6]]
         self.emit('execution',turn.round_no,safe,not result.get('ok',True))
-        series.observe(self.active['task_id'],result)
 
     def record(self,turn,response,manager):
         for command in response.get('roleCommandMap',{}).values():
@@ -254,7 +268,7 @@ class TaskAudit:
             if response.get('executeCmd'):self.active['commands']+=1
             if response.get('prompt'):
                 self.active['llm_requests']+=1
-                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v09-sop-1',
+                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v010-sop-1',
                           'reuse':manager.series.last_reuse,'reason':manager.diagnostic})
             if turn.llm_response:
                 fingerprint=self.redactor.fingerprint(turn.llm_response)

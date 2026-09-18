@@ -20,6 +20,7 @@ from .task_programs import procedure_command
 from .task_series import TaskSeries
 from .task_audit import TaskAudit, task_category
 from .task_context import TaskContext
+from .task_contracts import package_proof, extract_proof
 from .task_answers import answer_fingerprint, shape_error
 from .travel import TravelBudget
 from .grid import OccupancyGrid, distance_field, interaction_cells
@@ -426,6 +427,8 @@ class TaskManager:
                     priority=95,
                 )
             )
+        self.context.derive_contract(turn.phase_task)
+        category=self.audit.active['task_type'] if self.audit.active else 0
         elapsed = turn.round_no - (self.accepted_round if self.accepted_round is not None else turn.round_no)
         turns_left = max(0, self.timeout_rounds - elapsed) if self.timeout_rounds else 100
         step_limit = min(config.task_command_step_limit, (self.timeout_rounds + 1)//2 + 1) if self.timeout_rounds else config.task_command_step_limit
@@ -454,11 +457,33 @@ class TaskManager:
                 self.diagnostic='stale_task_result';self.phase=TaskPhase.WAITING_SYNTHESIS
                 self.pending_procedure=False
                 return AdvancedPlan()
+            if envelope.get('documents') and 'status' not in envelope:envelope['status']='documents_read'
+            self.context.keep_api_progress(self.context.last_plan,envelope)
+            if category==1 and envelope.get('computed') and self.context.last_plan.get('kind')!='api':
+                # A solver and verifier sharing an empty-data assumption are not
+                # independent retrieval evidence. Keep the candidate for deadline use.
+                envelope=dict(envelope,checked=False,**({'status':'data_evidence_missing'} if envelope.get('checked') else {}))
+                if isinstance(payload,dict):payload['procedure_result']=envelope
+            if category==2 and envelope.get('checked') and 'answer' in envelope:
+                envelope['answer']=package_proof(envelope['answer'],self.context.required)
+            if self.audit.active:self.series.observe(self.audit.active['task_id'],envelope)
             try:
                 self.audit.execution(turn,self.context.last_plan,envelope,self.series)
             except Exception:
                 self.audit.dropped+=1
             self.context.ingest(payload, result.output, result.status == "ok" and not result.truncated)
+            self.context.derive_contract(turn.phase_task)
+            if category==2 and result.status=='ok' and not result.truncated and envelope.get('status')=='script_ok':
+                proof=extract_proof(envelope.get('output',''),self.context.required)
+                if proof is not None:
+                    self.pending_answer=json.dumps(proof,ensure_ascii=False)
+                    prior=self.series.workflow_for(category,self.context.required)
+                    if prior:
+                        self.series.hits+=1
+                        self.series.last_reuse={'used':True,'source':prior['task_id'],'level':prior['level'],'reason':'current_output_extraction_reused'}
+                        self.audit.emit('method_applied',turn.round_no,{'reuse':self.series.last_reuse},True)
+                    self.series.record_script_proof(self.audit.active['task_id'],self.context.required,self.context.last_plan)
+                    self.audit.emit('proof_extracted',turn.round_no,{'source':'current_successful_output','format':'document_contract'},True)
             recovery = {
                 'missing_file': 'Use the returned files and workspace. Paths are root-relative in files; commands run in workspace. Confirm the exact file once, do not repeat the missing path.',
                 'syntax_error': 'Fix the reported syntax in the existing program; retain documents and data.',
@@ -473,10 +498,9 @@ class TaskManager:
             self.last_progress_round = turn.round_no
             self.diagnostic = "command_" + result.status
             if self.pending_procedure and result.status == "ok" and not result.truncated:
-                envelope = parse_structured_llm(result.output)
-                verified = envelope.get("procedure_result") if envelope else None
+                verified = envelope
                 if isinstance(verified, dict) and verified.get("ok") is True and verified.get("checked") is True:
-                    answer = verified.get("answer")
+                    answer = package_proof(verified.get("answer"),self.context.required) if category==2 else verified.get("answer")
                     if isinstance(answer, (dict, list, str, int, float, bool)) and answer != '':
                         self.pending_answer = json.dumps(answer, ensure_ascii=False) if not isinstance(answer, str) else answer
                         self.diagnostic = "procedure_checked"
@@ -496,6 +520,11 @@ class TaskManager:
             parsed = parse_structured_llm(turn.llm_response)
             if parsed is not None:
                 procedure = parsed.get("procedure")
+                if procedure is None and self.context.blocked_plan and isinstance(parsed.get('required'),dict):
+                    procedure=dict(self.context.blocked_plan,required=parsed['required'])
+                    self.context.blocked_plan={}
+                if isinstance(procedure,dict) and not procedure.get('required') and isinstance(parsed.get('required'),dict):
+                    procedure=dict(procedure,required=parsed['required'])
                 requested = parsed.get("command", parsed.get("script"))
                 if isinstance(parsed.get("python"),str):
                     procedure={"kind":"python","code":parsed["python"],"submit_result":parsed.get("submit_result") is True}
@@ -503,6 +532,8 @@ class TaskManager:
                         if name in parsed: procedure[name]=parsed[name]
                 if isinstance(procedure, dict):
                     procedure = dict(procedure)
+                    if self.context.contract_source.get('status')=='document_contract':procedure['required']=self.context.required
+                    if procedure.get('kind')=='api':procedure=self.context.restore_api_progress(procedure)
                     required=procedure.get('required')
                     if (isinstance(required,dict) and len(required)<=64 and all(isinstance(k,str) and isinstance(v,(str,dict,list)) for k,v in required.items())) or (isinstance(required,str) and required in {'string','integer','number','boolean','array','object','null'}):
                         self.context.required=required
@@ -523,7 +554,13 @@ class TaskManager:
                     if self.audit.active and self.audit.active['task_type']==1 and procedure.get('kind')=='api':
                         procedure['require_filter']=True
                         if not procedure.get('required'):
-                            self.feedback_hint='API answer contract missing; extract current fields/types from the task before execution.'
+                            self.feedback_hint='API answer contract missing. Return only {"required":{"actual_answer_field":"actual_type"}} from the CURRENT answer instructions; the pending procedure is retained.'
+                            self.context.blocked_plan=procedure
+                            self.reject_reason='answer_contract_missing'
+                            count=self.context.rejected_plans.get(self.reject_reason,0)+1
+                            self.context.rejected_plans[self.reject_reason]=count
+                            self.diagnostic='plan_rejected';self.task_stage='contract'
+                            self.audit.emit('plan_rejected',turn.round_no,{'reason':self.reject_reason,'count':count,'next':'contract_only_correction'},True)
                             self.phase=TaskPhase.WAITING_SYNTHESIS
                             return AdvancedPlan()
                     command = procedure_command(procedure)
@@ -533,6 +570,7 @@ class TaskManager:
                 else:
                     command = safe_task_command(requested, self.context.workspace if self.context.resolved else None)
                 answer = parsed.get("answer")
+                if category==2 and answer is not None:answer=package_proof(answer,self.context.required)
                 if answer is not None and self.audit.active and self.audit.active['task_type']==2:
                     def leaves(value):
                         if isinstance(value,dict):return [x for v in value.values() for x in leaves(v)]
@@ -552,6 +590,8 @@ class TaskManager:
                     self.reject_reason = "none"
                     self.command_kind=procedure.get("kind","none") if isinstance(procedure,dict) else "shell_or_source"
                     self.context.remember(program)
+                    if self.audit.active and not isinstance(procedure,dict):
+                        self.series.pending[self.audit.active['task_id']]={'type':category,'plan':dict(program),'executed':False}
                     self.pending_command = command
                     self.pending_procedure = isinstance(procedure, dict) or self.context.resolved or (isinstance(requested,str) and "\n" in requested)
                     self.pending_answer = ""
@@ -561,7 +601,7 @@ class TaskManager:
                     self.reject_reason = 'duplicate_failed_program' if duplicate else "step_budget" if command else "procedure_shape" if procedure else command_rejection(requested)
                     self.feedback_hint = "Command rejected: " + self.reject_reason + ". Use command/script with a local cd, Python or shell solver; no external network or destructive cleanup. Keep valid JSON string escaping."
                     self.diagnostic = "command_rejected_or_budget"
-                elif answer is not None and (self.context.failed_execution or (self.context.resolved and not self.context.executed)
+                elif answer is not None and ((category==1 and not self.context.api_verified) or self.context.failed_execution or (self.context.resolved and not self.context.executed)
                         or (self.context.candidate is not None and not self.context.candidate_checked)):
                     self.pending_answer = ""
                     self.feedback_hint = "No successful solving/checking result supports submission. Fix the reported execution error or run the solver/checker using the retained task documents."
@@ -606,6 +646,10 @@ class TaskManager:
             else:
                 self.last_answer_hash=fingerprint
         if self.pending_answer and self.last_submit_round != turn.round_no:
+            if category==2 and self.audit.active:
+                try:submitted=json.loads(self.pending_answer)
+                except ValueError:submitted=self.pending_answer
+                self.series.record_script_proof(self.audit.active['task_id'],self.context.required,self.context.last_plan,submitted)
             self.phase = TaskPhase.WAITING_RESULT
             self.last_submit_round = turn.round_no
             self.submit_attempts += 1
@@ -654,6 +698,9 @@ class TaskManager:
         if turn.round_no - self.last_progress_round >= config.task_stall_limit:
             self.feedback_hint = "No actionable progress. Return one valid procedure or an evidence-backed answer, no markdown commentary. " + self.feedback_hint[-250:]
             self.diagnostic = "stalled_" + self.diagnostic.removeprefix("stalled_")
+        if self.context.blocked_plan and not self.context.required and self.context.rejected_plans.get('answer_contract_missing',0)>=3:
+            self.diagnostic='contract_retry_exhausted'
+            return AdvancedPlan()
         if budget.can_call(task_active=True):
             if (
                 (not turn.llm_response or llm_signature == self.last_llm_signature)
@@ -671,6 +718,9 @@ class TaskManager:
                 if synthesis
                 else ""
             )
+            if self.context.blocked_plan and not self.context.required:
+                return AdvancedPlan(prompt='Return only JSON {"required":{"field":"type"}} describing the CURRENT answer, no program. '
+                    'Read the answer schema below; do not supply example answer values. '+self.context.prompt()+'\nTask: '+task_text)
             return AdvancedPlan(
                 prompt=(
                     self._sop_prompt(turn) +
@@ -686,14 +736,14 @@ class TaskManager:
                     "run the checker when provided, and use its actual output. Never invent tokens or results. "
                     "Prefer a bounded procedure to combine work: repair={kind:repair,edits:[{path,old,new}],cwd:relative_directory,check:[program,args...],answer_path:JSON.path}; "
                     "inspect={kind:inspect,paths:[relative_file,...]} reads additional source files if needed. "
-                    "api={kind:api,url:http_loopback_url,headers:{},query:{},records_path:JSON.path,pagination:{parameter,start,step,size,size_parameter,total_path,id_path},"
+                    "api={kind:api,url:http_loopback_url,headers:{},query:{},required:{actual_answer_field:actual_type},filter:{path:record_query_field,value:current_object},records_path:JSON.path,pagination:{parameter,start,step,size,size_parameter,total_path,id_path},"
                     "fields:{answer_key:{op:count|count_equal|unique|sum|min_by|max_by|constant,path,value,value_path,flatten}}}. "
                     "Distinguish document directory, project cwd, specification files and checker. A discovered document directory is not proof of project cwd. Bind paths using the actual file inventory; never search outside the task root. "
                     "Repair cwd defaults to that workspace. Use actual documented field names, types and authentication. "
                     "For code repair inspect the actual source, apply a unique replacement, run the provided checker and select its answer object. "
                     "For a checker returning text, repair supports answer_format=text and answer_pattern with a single capture from its real output. Do not change the checker to force a pass. "
                     "For API tasks fetch ALL pages; do not infer totals from one page. Do not embed a guessed answer. "
-                    "Prefer one complete script that performs the calculation/repair and validation in the same execution, then prints the required answer. "
+                    "For repair prefer one complete repair/check execution; for API statistics use the declared executor to establish real data evidence. Generic Python results without that evidence remain deadline candidates, never fast-verified. "
                     "Local cd and multiline scripts are supported. Do not return another inspection command when the needed source is already in the evidence. "
                     f"Task elapsed rounds: {turn.round_no-(self.accepted_round or turn.round_no)}; timeout: {self.timeout_rounds}. "
                     f"Remaining command steps: {max(0,step_limit-self.command_steps)}. Stage: {self.task_stage}. "
@@ -709,7 +759,7 @@ class TaskManager:
     def _sop_prompt(self, turn):
         category=self.audit.active['task_type'] if self.audit.active else task_category(turn,self.task_position)
         methods=self.series.prompt(category)
-        common=(f"SOP v09. Task category={category}. Match-local methods with evidence levels: {methods}. "
+        common=(f"SOP v010. Task category={category}. Match-local methods with evidence levels: {methods}. "
             "These are methods, never current answers or credentials. Re-read current requirements. "
             "To save/reuse a method attach compatibility:{contract:<answer-field/type signature>,schema:<documented response/project schema version>}. "
             "Only use reuse:true after checking these against current docs. Changes require a fresh plan. "
@@ -723,13 +773,13 @@ class TaskManager:
                 "Only use empty_is_end/unpaginated:true if documentation or actual protocol supports it. Never infer completeness from page size. "
                 "fields supports constant (source:requirement), count, count_equal, unique(sort:ascending|descending,flatten), sum, min_by/max_by "
                 "(comparison:numeric|ordered|era|lexical; order:list for ordered; pattern/year_group/era_group/before_labels for era; value_path). "
-                "Oldest era is semantic, not lexical by default. Inspect real response errors/structure then correct affected bindings only. "
+                "Oldest era is semantic, not lexical by default. Inspect real response errors/structure then correct affected bindings only. After HTTP 200, current-task headers/method/body are retained; use reset_request:true only with evidence that these must change. "
                 "For reuse:true supply fresh url,query,filter,required,fields constant bindings; compatible aggregate/pagination methods are filled automatically. ")
         if category==2:
             return common+("REPAIR SOP: resolve document directory separately from project cwd; inspect spec and actual files once. "
                 "Use procedure repair with explicit cwd, unique edits and actual check argv (local executable scripts supported). "
                 "Never modify the checker. A failed checker and a checker that could not launch require different recovery. "
-                "Extract this task's real proof via answer_path or answer_format:text plus one capture answer_pattern. "
+                "Extract this task's real proof via answer_path or answer_format:text plus one capture answer_pattern. Keep the CURRENT required submission object separate from the extracted proof: do not submit a bare string when the document requires an object. "
                 "A successful real checker with current proof submits immediately, without statistics assertions. "
                 "For reusable extraction use reuse:true with NEW cwd/check/edits and current compatibility. Never copy configuration values/proofs. ")
         return common

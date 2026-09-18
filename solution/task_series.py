@@ -16,10 +16,37 @@ class TaskSeries:
     def begin(self,task_id,task_type):
         self.pending[task_id]={'type':task_type,'plan':{},'executed':False}
 
+    def record_script_proof(self, task_id, required, plan, submitted=None):
+        from .task_answers import shape_error
+        if not isinstance(required,dict) or len(required)!=1:return
+        if submitted is not None and shape_error(submitted,required):return
+        pending=self.pending.setdefault(task_id,{'type':2,'plan':{},'executed':False})
+        if pending['type']!=2:return
+        # Retain a workflow, not source, file names, patch values or proof values.
+        text=str(plan.get('command',plan.get('script',plan.get('code',''))))
+        launcher='python3' if 'python' in text else 'shell'
+        pending['workflow']={'kind':'repair_workflow','required':deepcopy(required),
+                             'extraction':'current_output_json_or_labeled_field','launcher':launcher,
+                             'steps':['confirm_current_workspace','read_current_spec_and_files','apply_unique_or_receipted_patch','run_real_checker','package_current_proof']}
+        pending['executed']=True
+
+    def workflow_for(self, task_type, required):
+        prior=self.methods.get((task_type,'repair_workflow'))
+        if prior and prior['template'].get('required')==required:
+            return prior
+        return None
+
     def prepare(self, plan, task_id, task_type):
         plan=deepcopy(plan);kind=plan.get('kind')
         self.last_reuse={'used':False,'reason':'fresh_plan'}
+        if kind in ('api','repair') and not plan.get('compatibility') and plan.get('required'):
+            plan['compatibility']={'contract':deepcopy(plan['required']),
+                                   'schema':{'kind':kind,'records_path':plan.get('records_path','')}}
         prior=self.methods.get((task_type,kind))
+        if prior and 'reuse' not in plan and plan.get('compatibility')==prior['compatibility']:
+            needed=('url','query','filter','fields','required') if kind=='api' else ('cwd','check','edits')
+            mappings_current=kind!='api' or set(prior['template'].get('fields',{}))<=set(plan.get('fields',{}))
+            if mappings_current and all(k in plan for k in needed):plan['reuse']=True
         if plan.pop('reuse',False):
             if not prior:
                 self.last_reuse={'used':False,'reason':'no_compatible_method'}
@@ -52,7 +79,7 @@ class TaskSeries:
             pending['executed']=True
             pending['answer']=result.get('answer')
             self._save(task_id,'executed')
-        elif result.get('status') in ('filter_not_applied','records_shape','parse_or_compute_failed','authentication_failed','check_not_structured','FileNotFoundError','non_unique_patch','checker_reported_failure'):
+        elif (result.get('reason') or result.get('status')) in ('filter_not_applied','records_shape','parse_or_compute_failed','authentication_failed','check_not_structured','FileNotFoundError','non_unique_patch','checker_reported_failure'):
             key=(pending['type'],pending['plan'].get('kind'))
             if key in self.methods:
                 self.methods.pop(key);self.invalidations+=1
@@ -65,6 +92,11 @@ class TaskSeries:
 
     def _save(self, task_id, level):
         pending=self.pending[task_id];plan=pending['plan'];kind=plan.get('kind')
+        if pending.get('workflow'):
+            self.methods[(pending['type'],'repair_workflow')]={'template':deepcopy(pending['workflow']),
+                'compatibility':{'contract':deepcopy(pending['workflow']['required'])},'task_id':task_id,'level':level,
+                'invalidates_on':['contract_change','current_workspace_or_checker_failure']}
+
         if kind not in ('api','repair'):return
         compatibility=plan.get('compatibility',{})
         if not isinstance(compatibility,dict) or not compatibility:return

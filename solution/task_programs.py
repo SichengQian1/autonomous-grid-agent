@@ -10,11 +10,12 @@ import zlib
 import inspect
 from .task_answers import shape_error, shape_details
 from .task_api import run_api
+from .task_contracts import package_proof
 
 
 # Kept self-contained because the task sandbox is separate from the HTTP process.
-SANDBOX_PROGRAM = inspect.getsource(shape_error) + '\n' + inspect.getsource(shape_details) + '\n' + inspect.getsource(run_api) + r'''
-import json, os, subprocess, time, urllib.request, urllib.parse
+SANDBOX_PROGRAM = inspect.getsource(shape_error) + '\n' + inspect.getsource(shape_details) + '\n' + inspect.getsource(run_api) + '\n' + inspect.getsource(package_proof) + r'''
+import json, os, subprocess, time, urllib.request, urllib.parse, hashlib, shutil, shlex
 from pathlib import Path
 started = time.monotonic()
 base = Path(options.get("base", "/tmp/selfEvolutionTask")).resolve()
@@ -59,6 +60,24 @@ def execute(argv, cwd, extra_env=None):
     env = dict(os.environ)
     if extra_env: env.update(extra_env)
     execution_evidence.update(cwd=str(cwd.relative_to(base)),stream='combined_stdout_stderr',program=argv[0],cwd_exists=cwd.is_dir(),stage='launch',argument_count=len(argv))
+    argv=list(argv)
+    if '/' in argv[0] and Path(argv[0]).is_file():
+        entry=Path(argv[0])
+        with entry.open('rb') as stream:first=stream.read(256).split(b'\n',1)[0]
+        execution_evidence.update(entry_exists=True,entry_executable=os.access(entry,os.X_OK),
+                                  shebang=first.startswith(b'#!'),shebang_crlf=first.endswith(b'\r'))
+        if first.startswith(b'#!'):
+            try:parts=shlex.split(first[2:].decode(errors='replace').strip())
+            except ValueError:parts=[]
+            if parts and Path(parts[0]).name=='env':parts=parts[1:]
+            if parts and len(parts)<=3 and not any(x.startswith('-') for x in parts):
+                name=Path(parts[0]).name
+                family='python3' if name.startswith('python3') else name if name in ('bash','sh') else ''
+                interpreter=shutil.which(family) if family else None
+                execution_evidence.update(interpreter=parts[0],interpreter_available=bool(interpreter))
+                if interpreter and (first.endswith(b'\r') or not Path(parts[0]).is_file() or not os.access(entry,os.X_OK)):
+                    argv=[interpreter,*parts[1:],str(entry),*argv[1:]]
+                    execution_evidence['invocation']='explicit_interpreter'
     proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, start_new_session=True)
     def stop():
@@ -127,6 +146,18 @@ def run():
         edits = options.get("edits", []) if kind == "repair" else []
         if not isinstance(edits,list) or len(edits)>8: raise ValueError("edit_limit")
         prepared = {}
+        receipts={};receipt_path=None;receipt_edits=[]
+        if options.get('task_id'):
+            directory=inside('.agent_task_cache')
+            if not (base/'.agent_task_cache').is_symlink():
+                directory.mkdir(exist_ok=True)
+                ident=hashlib.sha256((str(options.get('cache_namespace',''))+options['task_id']).encode()).hexdigest()
+                receipt_path=directory/('repair-'+ident+'.json')
+                if receipt_path.is_symlink():receipt_path=None
+                elif receipt_path.is_file() and receipt_path.stat().st_size<32000:
+                    try:receipts=json.loads(receipt_path.read_text())
+                    except (ValueError,OSError):pass
+                if not isinstance(receipts,dict):receipts={}
         checker_files=set()
         checker_cwd=inside(options.get('cwd','.'))
         check_argv=list(options.get('check',[])) if kind=='repair' else []
@@ -149,11 +180,25 @@ def run():
             if p.stat().st_size > 100000: raise ValueError("file_limit")
             old, new = edit["old"], edit["new"]
             text = prepared.get(p, p.read_text())
-            patch_evidence.append({'path':str(p.relative_to(base)),'matches':text.count(old),'changed':False})
+            relative=str(p.relative_to(base))
+            stamp=hashlib.sha256(json.dumps([relative,old,new]).encode()).hexdigest()
+            digest=hashlib.sha256(text.encode()).hexdigest()
+            item={'path':relative,'matches':text.count(old),'old_length':len(old),'new_length':len(new),
+                  'changed':False,'applied':False,'before_length':len(text)}
+            patch_evidence.append(item)
+            if receipts.get(stamp)==digest:
+                item.update(already_applied=True,applied=True,after_length=len(text));continue
             if not old or text.count(old)!=1 or len(new)>20000: raise ValueError("non_unique_patch")
             prepared[p] = text.replace(old,new,1)
-            patch_evidence.append({"path":str(p.relative_to(base)),"matches":text.count(old),"before_length":len(text),"after_length":len(prepared[p]),"changed":text!=prepared[p]})
-        for p,text in prepared.items(): p.write_text(text)
+            item.update(after_length=len(prepared[p]),changed=text!=prepared[p])
+            receipt_edits.append((stamp,p,item))
+        for p,text in prepared.items():
+            p.write_text(text)
+            for stamp,changed,item in receipt_edits:
+                if changed==p:
+                    item['applied']=True
+                    receipts[stamp]=hashlib.sha256(text.encode()).hexdigest()
+            if receipt_path:receipt_path.write_text(json.dumps(dict(list(receipts.items())[-32:])))
         if kind == "repair": argv=check_argv
         elif kind == "python":
             compile(options["code"],"<solver>","exec")
@@ -190,6 +235,7 @@ def run():
         except (ValueError,IndexError,KeyError,TypeError):
             return {"ok":False,"status":"check_not_structured","output":text}
         required=options.get('required')
+        if kind=='repair':answer=package_proof(answer,required)
         problem=shape_error(answer,required) if required is not None else ''
         if problem: return {'ok':False,'status':'answer_schema','reason':problem,'answer':answer,'computed':True,'schema_pass':False,'output':text}
         verified=False
@@ -228,11 +274,15 @@ try:
     result=run()
 except Exception as error:
     result={"ok":False,"status":type(error).__name__}
+    if isinstance(error,OSError):
+        execution_evidence['errno']=error.errno
+        if error.filename:execution_evidence['failed_path']=str(error.filename)
     if isinstance(error,FileNotFoundError):
         try: result.update(files=inventory(),workspace=str(options.get('cwd','.')),root=str(base))
         except TimeoutError: pass
     if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate","checker_edit_forbidden","era_pattern_limit"}:
         result["reason"]=str(error)
+if result.get('documents') and result.get('ok') is not False:result['status']='documents_read'
 if result.get('status')=='answer_schema':result['schema_details']=shape_details(result.get('answer'),options.get('required'))
 result['execution_evidence']=execution_evidence
 result['path_evidence']=path_evidence[:12]

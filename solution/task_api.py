@@ -9,9 +9,15 @@ def run_api(options, remaining):
         for key in path.split('.') if path else []:
             value=value[int(key)] if isinstance(value,list) else value[key]
         return value
-    def shape(value):
-        if isinstance(value,dict): return {str(k):type(v).__name__ for k,v in list(value.items())[:24]}
+    def shape(value, depth=0):
+        if isinstance(value,dict) and depth<3:return {str(k):shape(v,depth+1) for k,v in list(value.items())[:16]}
+        if isinstance(value,list):return {'type':'array','length':len(value),'item':shape(value[0],depth+1) if value else 'empty'}
         return type(value).__name__
+    def record_paths(value, prefix='', depth=0):
+        if depth>3:return []
+        if isinstance(value,list) and value and all(isinstance(v,dict) for v in value[:3]):return [prefix]
+        if isinstance(value,dict):return [p for k,v in list(value.items())[:16] for p in record_paths(v,'.'.join(filter(None,(prefix,str(k)))),depth+1)][:8]
+        return []
     evidence={'requests':[], 'fields':{}, 'complete':False, 'reason':'not_started'}
     result={'ok':False,'checked':False,'evidence':evidence}
     def fail(reason, **details):
@@ -82,8 +88,21 @@ def run_api(options, remaining):
             if isinstance(data,dict) and (data.get('code') in (401,403) or data.get('authenticated') is False):return fail('authentication_failed')
             if isinstance(data,dict) and (data.get('error') or data.get('success') is False):return fail('error_response',detail=str(data.get('error','unsuccessful'))[:1200])
             evidence['stage']='records_path'
-            page=field(data,options.get('records_path',''))
-            if not isinstance(page,list):return fail('records_shape')
+            try:page=field(data,options.get('records_path',''))
+            except (KeyError,IndexError,TypeError,ValueError):page=None
+            if not isinstance(page,list):
+                candidates=record_paths(data)
+                evidence['record_path_candidates']=candidates
+                # Only repair an unambiguous nested record array. The filter and
+                # declared field paths still have to validate against actual rows.
+                if len(candidates)==1 and options.get('filter',{}).get('path'):
+                    try:
+                        recovered=field(data,candidates[0])
+                        if not all(field(r,filter_spec['path'])==filter_spec['value'] for r in recovered):return fail('filter_not_applied')
+                    except (KeyError,TypeError):return fail('records_shape')
+                    page=recovered;row['requested_records_path']=row['records_path'];row['records_path']=candidates[0]
+                    evidence['resolved_records_path']=candidates[0]
+                else:return fail('records_shape')
             row['returned']=len(page)
             row['record_structure']=shape(page[0]) if page else {}
             fingerprint=hashlib.sha256(json.dumps(page,sort_keys=True).encode()).hexdigest()

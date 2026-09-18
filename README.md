@@ -45,7 +45,7 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The v0.9 candidate implementation is active. It includes
+The v0.10 candidate implementation is active. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
 state machines, bounded encoded telemetry, and opponent modes. Summon pressure and
@@ -76,7 +76,7 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.9`, this produces `submissions/v0/submission-v0.9.tar.gz`. The archive
+For `v0.10`, this produces `submissions/v0/submission-v0.10.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
@@ -94,7 +94,7 @@ python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decod
 ```
 
 For a compact shareable diagnosis, add `--summary` instead of redirecting output.
-This accepts v0.2–v0.9 logs and already-decoded JSONL, including `.xz` files.
+This accepts v0.2–v0.10 logs and already-decoded JSONL, including `.xz` files.
 v0.5 also records command rejection/error categories, changing mine locations,
 individual recalls, carrier ownership, and strategy fallback counts. It records
 task progress reasons, current prices, procurement stages, and why
@@ -119,12 +119,12 @@ See [the current worker and task flow](docs/operating-logic.md) for the detailed
 
 Before committing or pushing, inspect the staged file list and confirm that local source material, logs, replays, archives, and unsanitized fixtures are excluded.
 
-The v0.9 iteration adds executable API retrieval and project-repair workflows,
-match-local method reuse with provenance, and bounded task evidence. It changes the
-primary experiment to three rockets with two operators, four rear openings and a
-two-turn return margin. Ordinary weapon development advances all guns to level two,
-then level three; emergency maintenance retains priority. These changes require
-platform calibration and do not establish improved scores or survival.
+The v0.10 iteration repairs task execution entry, current-document answer contracts,
+checker launch recovery, applied-patch receipts and proof packaging. It preserves
+successful request bindings within one task and learns proof-extraction workflows
+from ordinary scripts. Generic API calculations without retrieval evidence remain
+unverified deadline candidates. Defense and economic policy remain the v0.9 experiment;
+real task success and survival still require platform calibration.
 
 Task diagnostics: use `--tasks` for category/outcome/timing/reuse summaries, or
 `--task-id T002 --detail-limit 24` for bounded sanitized details. New task events

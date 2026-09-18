@@ -95,3 +95,12 @@ TaskAudit emits separately budgeted, redacted evidence and attributes task incom
 against successful economic actions. The engine isolates audit failures from game
 responses. Defense assignment may share a controller across two compatible rockets,
 while combat and validation still enforce one weapon action per role per turn.
+
+## v0.10 task recovery
+
+Task contracts are extracted by task_contracts from current answer documentation,
+with explicit ambiguity handling. TaskContext retains current-task API bindings;
+repair execution records task-scoped patch receipts. Proof extraction and answer
+packaging are separate. TaskSeries learns bounded ordinary-script workflow metadata
+without retaining script source or proof values. Telemetry reports plan rejection,
+checker launch evidence and applied-patch state independently of successful document reads.
