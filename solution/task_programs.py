@@ -10,11 +10,13 @@ import zlib
 import inspect
 from .task_answers import shape_error, shape_details
 from .task_api import run_api
-from .task_contracts import package_proof
+from .task_contracts import package_proof, extract_proof, current_contract, _TYPES, _MARKER
+from .task_workflows import run_workflow
 
 
 # Kept self-contained because the task sandbox is separate from the HTTP process.
-SANDBOX_PROGRAM = inspect.getsource(shape_error) + '\n' + inspect.getsource(shape_details) + '\n' + inspect.getsource(run_api) + '\n' + inspect.getsource(package_proof) + r'''
+SANDBOX_PROGRAM = ('import re, json, hashlib\n_TYPES='+repr(_TYPES)+'\n_MARKER=re.compile('+repr(_MARKER.pattern)+',re.I)\n' +
+                  '\n'.join(inspect.getsource(f) for f in (shape_error,shape_details,run_api,package_proof,extract_proof,current_contract,run_workflow))) + r'''
 import json, os, subprocess, time, urllib.request, urllib.parse, hashlib, shutil, shlex
 from pathlib import Path
 started = time.monotonic()
@@ -97,7 +99,13 @@ def execute(argv, cwd, extra_env=None):
     execution_evidence.update(stage='completed',exit_code=code,output_length=len(text))
     return code,text
 def run():
+    import re
     kind = options["kind"]
+    if kind == 'bootstrap':
+        options['kind']='inspect'
+        try: info=run()
+        finally: options['kind']='bootstrap'
+        return run_workflow(options,info,base,inventory,execute,remaining)
     if kind == "inspect":
         files = []
         for directory, dirs, names in os.walk(base):
@@ -212,6 +220,8 @@ def run():
         cwd = checker_cwd if kind=='repair' else inside(options.get('cwd','.'))
         code,text = execute(argv,cwd)
         if len(text)>12000: return {"ok":False,"status":"check_truncated","output":text[:12000]}
+        if kind=='repair' and re.search(r'\[FAIL\]|\bFAILED\b',text):
+            return {'ok':False,'status':'checker_reported_failure','exitCode':code,'output':text}
         if code:
             result={"ok":False,"status":"check_failed","exitCode":code,"output":text[:8000]}
             if 'FileNotFoundError' in text or 'No such file' in text:
@@ -282,7 +292,7 @@ except Exception as error:
         except TimeoutError: pass
     if str(error) in {"path_outside_task","file_limit","non_unique_patch","check_shape","check_program","check_timeout","procedure_deadline","loopback_only","edit_limit","unknown_aggregate","checker_edit_forbidden","era_pattern_limit"}:
         result["reason"]=str(error)
-if result.get('documents') and result.get('ok') is not False:result['status']='documents_read'
+if result.get('documents') and result.get('ok') is not False and 'status' not in result:result['status']='documents_read'
 if result.get('status')=='answer_schema':result['schema_details']=shape_details(result.get('answer'),options.get('required'))
 result['execution_evidence']=execution_evidence
 result['path_evidence']=path_evidence[:12]
@@ -310,8 +320,11 @@ print(render())
 '''
 
 
+_PAYLOADS = {}
+
+
 def procedure_command(plan: dict[str, object]) -> str:
-    if not isinstance(plan.get("kind"), str) or plan.get("kind") not in {"inspect", "repair", "api", "script", "python"} or "base" in plan:
+    if not isinstance(plan.get("kind"), str) or plan.get("kind") not in {"bootstrap", "inspect", "repair", "api", "script", "python"} or "base" in plan:
         return ""
     try:
         raw = json.dumps(plan, ensure_ascii=True, allow_nan=False)
@@ -319,7 +332,13 @@ def procedure_command(plan: dict[str, object]) -> str:
         return ""
     if len(raw) > 12000:
         return ""
-    payload = base64.b64encode(zlib.compress(SANDBOX_PROGRAM.encode())).decode()
+    family='bootstrap' if plan['kind']=='bootstrap' else 'procedure'
+    if family not in _PAYLOADS:
+        unused=(run_api,) if family=='bootstrap' else (run_workflow,current_contract)
+        program=SANDBOX_PROGRAM
+        for function in unused:program=program.replace(inspect.getsource(function),'')
+        _PAYLOADS[family]=base64.b64encode(zlib.compress(program.encode(),9)).decode()
+    payload = _PAYLOADS[family]
     options = base64.b64encode(raw.encode()).decode()
     code = f"import base64,zlib,json;options=json.loads(base64.b64decode('{options}'));exec(zlib.decompress(base64.b64decode('{payload}')))"
     import shlex

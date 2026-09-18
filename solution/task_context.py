@@ -33,6 +33,27 @@ class TaskContext:
     api_verified: bool = False
     rejected_plans: dict = field(default_factory=dict)
     blocked_plan: dict = field(default_factory=dict)
+    retrieval: dict = field(default_factory=dict)
+
+    @property
+    def data_ready(self):
+        return bool(self.retrieval.get('complete') and not self.retrieval.get('records_omitted')
+                    and self.retrieval.get('reason') in ('total_matched','explicit_end')
+                    and self.retrieval.get('filter_evidence')!='unconfirmed')
+
+    def data_answer_error(self, answer):
+        from .task_answers import shape_error
+        error=shape_error(answer,self.required)
+        if error:return error
+        if not self.data_ready:return 'retrieval_not_complete'
+        if answer.get('city')!=self.retrieval.get('object'):return 'query_object_mismatch'
+        rows=self.retrieval['records']
+        if answer.get('total_count')!=len(rows):return 'record_count_mismatch'
+        if 'world_heritage_count' in answer and not 0<=answer['world_heritage_count']<=len(rows):return 'subset_count_out_of_range'
+        if rows and all(isinstance(r.get('type'),str) for r in rows) and 'types' in answer:
+            expected={r['type'] for r in rows}
+            if any(not isinstance(x,str) for x in answer['types']) or set(answer['types'])!=expected or len(answer['types'])!=len(expected):return 'category_set_mismatch'
+        return ''
 
     def derive_contract(self, task_text=''):
         docs=dict(self.documents)
@@ -71,6 +92,8 @@ class TaskContext:
     def ingest(self, payload, output: str, ok: bool):
         envelope=payload.get('procedure_result',payload) if isinstance(payload,dict) else {}
         if not isinstance(envelope,dict): envelope={}
+        if isinstance(envelope.get('retrieval'),dict):self.retrieval=envelope['retrieval']
+        if envelope.get('required') and isinstance(envelope['required'],dict):self.required=envelope['required']
         files=envelope.get('files')
         if isinstance(files,list): self.files=[f[:256] for f in files[:100] if isinstance(f,str)]
         workspace=envelope.get('workspace')
@@ -99,14 +122,12 @@ class TaskContext:
                 removed=keys[1] if len(keys)>1 else keys[0]
                 del self.documents[removed]
                 self.incomplete.pop(removed,None)
-            return
+            if not envelope.get('retrieval') and not envelope.get('checked') and envelope.get('status') in (None,'documents_read'):return
         self.failed_execution=not ok or envelope.get('ok') is False
         self.executed=not self.failed_execution
         if self.failed_execution and self.last_program:
             if len(self.failed_programs)<16: self.failed_programs.add(self.last_program)
         elif self.executed: self.failed_programs.clear()
-        self.candidate=None
-        self.candidate_checked=self.schema_pass=False
         if (self.executed or envelope.get('computed') is True) and 'answer' in envelope:
             self.candidate=envelope['answer']
             self.candidate_checked=envelope.get('checked') is True
@@ -118,6 +139,7 @@ class TaskContext:
         return json.dumps({'workspace':self.workspace,'documents':self.documents,'files':self.files,
                            'incomplete_documents':self.incomplete,'required':self.required,'contract_source':self.contract_source,
                            'request_binding_preserved':bool(self.api_bindings),
+                           'retrieval':self.retrieval,
                            'recovery':self.recovery,
                            'recent_execution':self.recent,'recent_programs':self.programs,
                            'workspace_files':{p:str(PurePosixPath(p).relative_to(self.workspace)) for p in self.files if PurePosixPath(p).is_relative_to(self.workspace)}},ensure_ascii=False)

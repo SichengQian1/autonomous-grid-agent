@@ -102,6 +102,85 @@ empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
 
+### 2026-09-18 - v0.11 executable task workflows and readable evidence
+
+Evidence and scope:
+
+- Started on codex/v0 at a68b42580170d6b677f7c045fc6a5bacfa104e46; preserved the
+  user's pre-existing AGENTS.md edits outside the release.
+- Four returned v0.10 runs: API 0/12 full with all unsubmitted; repair 4/12 full.
+  Twenty of 24 tasks never submitted. Average task income was 80 per match and
+  40 before the first night. A separate supplied four-run comparison completed
+  all 23 accepted tasks for full rewards, averaging 460 task gold and 240 before night.
+  These are observed samples, not estimates of future success or total match score.
+- The comparison's useful behavior was a short executable specification/checker
+  repair loop and actual API records handed to model interpretation. Its automatic
+  response flattening, idle-after-completion behavior and unredacted logging were
+  not adopted. Historical answers, credentials, project values and raw logs are excluded.
+- This release concentrates on tasks and diagnostics. Combat, worker scheduling,
+  procurement, movement and protocol behavior retain the previous experiment.
+
+Implementation:
+
+1. The initial task command now runs a bounded current-document bootstrap. Recognized
+   repair specifications drive directory creation, project permissions, guarded
+   configuration-line changes and task-referenced script newline handling. A unique
+   current workspace and checker are required; checker bytes are never modified.
+   Up to three repair/check iterations share the existing nine-second sandbox budget.
+   Actual checker failure, launch failure and missing proof are distinct. A current
+   successful proof is packaged and submitted immediately. Unknown tasks fall back
+   to the existing general model/script solver and applied-patch recovery.
+2. Supported API tasks resolve current service/credentials/object, make bounded
+   request adaptations and discover actual nested records. Offset/limit progression,
+   totals, duplicates and explicit end markers determine completeness. A bounded
+   negative-object query detects ignored filters when records omit the query field.
+   Evidence distinguishes record checks, negative controls and accepted parameters
+   without independent response echo. No nonexistent record field is invented.
+3. Actual retrieved records and current requirements reach a dedicated model prompt.
+   Shape/object/count/category invariants are checked before submitting supported
+   candidates. Such candidates are not labeled independently verified or platform-full.
+   Ambiguous/large/unsupported responses retain evidence and take the general route.
+   The older API executor accepts root-prefixed paths and returns field/data previews
+   on mapping failures. Within-task candidates survive unrelated recovery steps.
+4. Match-local API hints retain authentication style, parameter and response/paging
+   methods, excluding credential values and answers. Subsequent tasks rebind and
+   revalidate; changed methods invalidate. Actual workflow reuse has a distinct event,
+   and new tasks clear old reuse markers. Fixed repair SOP execution is not counted
+   as runtime learning merely because the same routine runs again.
+5. Readable local traces add document/model/command chunks, fingerprints, part counts,
+   byte/truncation metadata, concrete checker/API failures and request/command IDs.
+   Non-sensitive numbers and calculations remain readable; authentication, cookies,
+   account identifiers, private addresses and current repair proofs are redacted first.
+   Identical status alone no longer merges different failures. Repeated type-only
+   plans are reduced and settlement retains budget. Traces remain bounded, not unlimited.
+   `decode_match_log.py --trace --task-id T002 --detail-limit 128` reads the new evidence.
+6. Submission transport caches compressed programs by workflow family, omitting
+   unused helpers so the larger bootstrap fits the existing command limit.
+
+Validation and limits:
+
+- Preserved failing synthetic cases before implementation. The 16 new workflow tests
+  cover real-data-to-model-to-submit, immediate proof submission, three tasks with
+  fresh credentials/objects and fewer repeated requests, ignored filters, nested
+  records without city fields, offset pagination, changed project paths, dynamic
+  proofs, checker preservation, business failure, unknown-project fallback, stale
+  result rejection, trace chunking, budgets, redaction and actual command transport.
+- Full suite: 276 tests pass, including the two-side 1300-turn synthetic regression.
+  Related task regressions were rerun after final logging/prompt adjustments.
+- Source and clean archive HTTP checks cover malformed JSON and both sides through
+  round 71 with independently restricted building cells: three rockets, 12/13 walls,
+  two operators staffing all three weapons. These do not emulate official tasks.
+- Runtime source passes Python 3.11 syntax parsing; tests run under local Python
+  3.14.6. Exact Python 3.11.10 remains untested locally.
+- Read-only comparison-document compatibility checks recognized the supplied task
+  contracts and relevant requirement forms; no complete original project replay was
+  possible or claimed. Automatic support remains limited to recognized structures.
+- Next matches must compare per-category full/unsubmitted rates, repair 3/3 runs,
+  first-night task income, second/third-task request counts and elapsed time, and
+  protocol/survival regressions. No real v0.11 score or win-rate improvement is yet proven.
+- Release: `submissions/v0/submission-v0.11.tar.gz` (33 runtime files including entrypoint).
+- SHA-256: `b512dce54484d33ff3cd78aac0b8bb90fafae76191d356b7c8e4fce4f8fe52d2`.
+
 ### 2026-09-18 - v0.10 task execution, checker recovery and method coverage
 
 Evidence and scope:

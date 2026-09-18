@@ -14,7 +14,12 @@ class TaskSeries:
     last_reuse: dict = field(default_factory=dict)
 
     def begin(self,task_id,task_type):
+        self.last_reuse={'used':False,'reason':'new_task'}
         self.pending[task_id]={'type':task_type,'plan':{},'executed':False}
+
+    def workflow_hint(self, task_type):
+        prior=self.methods.get((task_type,'bootstrap'))
+        return deepcopy(prior['template']) if prior else {}
 
     def record_script_proof(self, task_id, required, plan, submitted=None):
         from .task_answers import shape_error
@@ -71,6 +76,10 @@ class TaskSeries:
     def observe(self, task_id, result):
         pending=self.pending.get(task_id)
         if not pending:return
+        method=result.get('method')
+        if isinstance(method,dict) and result.get('ok') and (result.get('checked') or result.get('retrieval',{}).get('complete')):
+            pending['workflow_method']=deepcopy(method)
+            self._save(task_id,'observed')
         if result.get('documents') and result.get('files'):
             self.observations[pending['type']]={'level':'observed','task_id':task_id,
                 'method':'bounded_inventory_then_document_project_resolution','scope':'current_match_task_category',
@@ -86,12 +95,15 @@ class TaskSeries:
 
     def settle(self, task_id, outcome):
         pending=self.pending.get(task_id)
-        if pending and pending['executed']:
+        if pending and (pending['executed'] or pending.get('workflow_method')):
             self._save(task_id,'platform_full' if outcome=='full' else 'executed')
         self.pending.pop(task_id,None)
 
     def _save(self, task_id, level):
         pending=self.pending[task_id];plan=pending['plan'];kind=plan.get('kind')
+        if pending.get('workflow_method'):
+            self.methods[(pending['type'],'bootstrap')]={'template':deepcopy(pending['workflow_method']),
+                'task_id':task_id,'level':level,'invalidates_on':['current_document_or_response_change']}
         if pending.get('workflow'):
             self.methods[(pending['type'],'repair_workflow')]={'template':deepcopy(pending['workflow']),
                 'compatibility':{'contract':deepcopy(pending['workflow']['required'])},'task_id':task_id,'level':level,

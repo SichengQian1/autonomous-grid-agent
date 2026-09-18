@@ -69,7 +69,7 @@ class TaskEvidenceTests(unittest.TestCase):
         raw.update(roundNo=11,phaseTask='Read fresh.md')
         plan=self.plan(manager,raw)
         self.assertIn('fresh.md',plan.execute_command)
-        self.assertEqual(manager.command_kind,'inspect')
+        self.assertEqual(manager.command_kind,'bootstrap')
 
     def plan(self, manager, raw):
         turn=Turn.from_raw(raw); state=WorldState(); state.ingest(turn)

@@ -6,6 +6,7 @@ def run_api(options, remaining):
     import json, hashlib, urllib.request, urllib.parse, urllib.error
     import re
     def field(value, path):
+        path=path.removeprefix('$').lstrip('.')
         for key in path.split('.') if path else []:
             value=value[int(key)] if isinstance(value,list) else value[key]
         return value
@@ -85,6 +86,12 @@ def run_api(options, remaining):
             if len(raw)>256000:return fail('response_limit')
             evidence['stage']='response_parse'
             data=json.loads(raw);row['structure']=shape(data)
+            # Keep current response fields/samples when mapping or validation fails.
+            candidates=record_paths(data)
+            if len(candidates)==1:
+                sample=field(data,candidates[0])
+                result['data_preview']={'records_path':candidates[0],'record_structure':shape(sample[0]) if sample else {},
+                    'records':sample[:3],'returned':len(sample)}
             if isinstance(data,dict) and (data.get('code') in (401,403) or data.get('authenticated') is False):return fail('authentication_failed')
             if isinstance(data,dict) and (data.get('error') or data.get('success') is False):return fail('error_response',detail=str(data.get('error','unsuccessful'))[:1200])
             evidence['stage']='records_path'

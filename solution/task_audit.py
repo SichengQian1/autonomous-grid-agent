@@ -48,6 +48,35 @@ class Redactor:
     def fingerprint(self, value):
         return hashlib.sha256((self.salt+str(value)).encode()).hexdigest()[:16]
 
+    def readable(self, value, limit=2400):
+        """Readable local evidence with credential discovery before truncation."""
+        # Register labeled credentials before any separate snippet is emitted.
+        patterns=[r'(?i)(?:bearer\s+)([A-Za-z0-9_./+=-]{4,})',
+                  r'''(?i)(?:[\w-]*(?:token|password|secret|credential|api[_-]?key|certificate)[\w-]*|authorization|cookie|session|proof|account|username|teamId|teamName)\s*["'`]?\s*[:=|]\s*["'`]?([^\s"'`,;}|]+)''']
+        def learn(v):
+            if isinstance(v,dict):
+                for key,item in v.items():
+                    if str(key).lower()=='headers' and isinstance(item,dict):self.protect(item)
+                    if re.search(r'(?i)token|password|secret|credential|api[_-]?key|certificate|authorization|cookie|session|proof|account|username|teamId|teamName|cache_namespace',str(key)) and isinstance(item,str) and item not in ('string','integer','object','array','boolean','number','null'):
+                        self.protect(item)
+                    learn(item)
+            elif isinstance(v,list):
+                for item in v:learn(item)
+            elif isinstance(v,str):
+                for pattern in patterns:
+                    for match in re.finditer(pattern,v):
+                        if match[1] not in ('string','integer','object','array','boolean','number','null'):self.protect(match[1])
+        learn(value)
+        text=value if isinstance(value,str) else json.dumps(value,ensure_ascii=False)
+        text=self.scrub(text)
+        text=re.sub(r'https?://[^\s"\x27<>`]+',lambda m:'<service:'+self.fingerprint(m[0])[:8]+'>',text)
+        text=re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '<account>',text)
+        text=re.sub(r'(?<![\w])(?:[A-Za-z]:)?/(?:[\w.\-]+/?)+',lambda m:self.path(m[0]),text)
+        text=re.sub(r'\b[0-9a-fA-F]{12,}\b','<opaque>',text)
+        original=len(text.encode())
+        raw=text.encode()[:limit];kept=raw.decode(errors='ignore')
+        return {'text':kept,'original_bytes':original,'kept_bytes':len(kept.encode()),'truncated':len(raw)<original}
+
     def path(self, value):
         parts=str(value).replace('\\','/').split('/')
         parent='';mapped=[]
@@ -130,11 +159,12 @@ class TaskAudit:
     used: int = 0
     total_used: int = 0
     repeats: Counter = field(default_factory=Counter)
-    task_limit: int = 22000
-    match_limit: int = 180000
+    task_limit: int = 42000
+    match_limit: int = 300000
     sequence: int = 0
     last_result: str = ''
     last_llm: str = ''
+    transcript_seen: set = field(default_factory=set)
     settlement: tuple | None = None
 
     def emit(self, kind, round_no, data, critical=False):
@@ -146,7 +176,7 @@ class TaskAudit:
         size=len(json.dumps(event,ensure_ascii=False).encode())
         if size>7000 and kind=='execution':
             omitted=[]
-            for key in ('plan_structure','program','requirements','paths','documents','api','verifier_program'):
+            for key in ('plan_structure','program','requirements','paths','documents','output','api','verifier_program','checks','operations'):
                 if size<=7000:break
                 if key in event:
                     event.pop(key);omitted.append(key)
@@ -157,6 +187,16 @@ class TaskAudit:
             self.dropped+=1;return
         self.used+=size;self.total_used+=size;event['dropped']=self.dropped
         self.events.append(event)
+
+    def artifact(self, round_no, kind, value, limit=8000):
+        fingerprint=self.redactor.fingerprint(value)
+        if fingerprint in self.transcript_seen:return
+        self.transcript_seen.add(fingerprint)
+        content=self.redactor.readable(value,limit)
+        text=content.pop('text');chunks=[text[i:i+1200] for i in range(0,len(text),1200)] or ['']
+        for index,chunk in enumerate(chunks):
+            self.emit('trace',round_no,{'artifact':kind,'fingerprint':fingerprint,'part':index+1,
+                'parts':len(chunks),'text':chunk,**content},True)
 
     def observe(self,turn,series):
         self.settlement=None
@@ -199,7 +239,7 @@ class TaskAudit:
         self.active={'task_id':f'T{self.sequence:03d}','task_type':category,'type_ordinal':self.counts[category],
                      'start':turn.round_no,'deadline':turn.round_no+(task.timeout_rounds if task else 15),
                      'reward':task.gold_reward if task else 0,'seen':False,'submissions':0,'commands':0,'llm_requests':0,'llm_returns':0}
-        self.used=0;self.repeats.clear()
+        self.used=0;self.repeats.clear();self.transcript_seen.clear()
         self.emit('accept',turn.round_no,{'deadline':self.active['deadline'],'reward':self.active['reward']},True)
 
     def execution(self,turn,plan,result,series):
@@ -208,11 +248,18 @@ class TaskAudit:
         for k,v in plan.get('query',{}).items():
             if any(x in k.lower() for x in ('token','key','password','auth')):self.redactor.protect(v)
         if self.active['task_type']!=1:self.redactor.protect(result.get('answer'))
+        if self.active['task_type']!=1:
+            from .task_contracts import extract_proof
+            proof=extract_proof(result.get('output',''),result.get('required') or plan.get('required') or self.active.get('required'))
+            if proof:self.redactor.protect(proof)
+        # First register secrets from every source; then produce linked excerpts.
+        for source in (result,plan):self.redactor.readable(source,0)
         status=result.get('status','ok' if result.get('ok') else 'unknown')
-        self.repeats[status]+=1
-        if self.repeats[status]>2:
-            self.emit('repeat',turn.round_no,{'reason':status,'count':self.repeats[status]});return
-        safe={'status':status,'exit_code':result.get('exitCode'),'elapsed_ms':result.get('elapsed_ms'),
+        repeat_key=self.redactor.fingerprint([status,plan,result.get('output'),result.get('detail')])
+        self.repeats[repeat_key]+=1
+        if self.repeats[repeat_key]>2:
+            self.emit('repeat',turn.round_no,{'reason':status,'count':self.repeats[repeat_key],'fingerprint':repeat_key});return
+        safe={'status':status,'command_id':self.active['commands'],'exit_code':result.get('exitCode'),'elapsed_ms':result.get('elapsed_ms'),
               'cwd':self.redactor.path(result.get('cwd','.')),'output':self.redactor.trace(result.get('output','')),
               'verification_kind':result.get('verification_kind'),'answer_structure':self.redactor.structure(result.get('answer')),
               'schema_reason':result.get('reason') if result.get('status')=='answer_schema' else None,
@@ -241,12 +288,27 @@ class TaskAudit:
         if isinstance(evidence,dict):
             # Executor evidence contains no request values or raw records.
             safe['api']={k:v for k,v in evidence.items() if k not in ('detail',)}
+            safe['api']['requests']=[{k:self.redactor.readable(v,400)['text'] if k=='error' else v for k,v in row.items()}
+                                     for row in evidence.get('requests',[])]
         if result.get('documents'):
             safe['documents']=[{'id':self.redactor.path(d.get('path','')),'fingerprint':self.redactor.fingerprint(d.get('text','')),
                 'length':len(d.get('text','')),'complete':d.get('complete'), 'offset':d.get('offset',0),
                 'next_offset':d.get('next_offset'), 'original_bytes':d.get('original_bytes'),
                 'recognized_fields':[k for k in ('city','total_count','world_heritage_count','types','oldest_era') if k in d.get('text','')]} for d in result['documents'][:6]]
+        # Avoid repeating bulky type-only plans. Documents and actual plans have
+        # separate linked events; failures and settlement retain their own budget.
+        safe.pop('plan_structure',None)
+        if result.get('evidence',{}).get('detail'):
+            safe['api_detail']=self.redactor.readable(result['evidence']['detail'],700)
+        for key in ('detail','operations','checks','method'):
+            if key in result:safe[key]=self.redactor.readable(result[key],1200)
+        if result.get('retrieval'):
+            retrieval=result['retrieval'];safe['retrieval']={k:v for k,v in retrieval.items() if k not in ('records','object')}
+            safe['record_fields']=sorted({k for row in retrieval.get('records',[]) for k in row})[:24]
+        if result.get('output'):safe['readable_output']=self.redactor.readable(result['output'],1800)
         self.emit('execution',turn.round_no,safe,not result.get('ok',True))
+        for doc in result.get('documents',[])[:6]:
+            self.artifact(turn.round_no,'document:'+self.redactor.path(doc.get('path','')),doc.get('text',''),6000)
 
     def record(self,turn,response,manager):
         for command in response.get('roleCommandMap',{}).values():
@@ -263,21 +325,32 @@ class TaskAudit:
                     'checked':manager.context.candidate_checked,'strategy':manager.diagnostic,
                     'schema_pass':manager.context.schema_pass},True)
         if self.active:
+            returned_request_id=self.active['llm_requests']
             if turn.errors:
                 self.emit('platform_feedback',turn.round_no,{'errors':[{'code':e.error_code,'description':self.redactor.words(e.description)} for e in turn.errors]},True)
             if response.get('executeCmd'):self.active['commands']+=1
+            if response.get('executeCmd'):
+                plan=manager.context.last_plan
+                self.emit('command',turn.round_no,{'command_id':self.active['commands'],
+                    'fingerprint':self.redactor.fingerprint(plan),'plan':self.redactor.readable(plan,2800)},True)
+                self.artifact(turn.round_no,'command:'+str(self.active['commands']),plan)
             if response.get('prompt'):
                 self.active['llm_requests']+=1
-                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v010-sop-1',
-                          'reuse':manager.series.last_reuse,'reason':manager.diagnostic})
+                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v011-workflow-1',
+                          'request_id':self.active['llm_requests'],'reuse':manager.series.last_reuse,'reason':manager.diagnostic,
+                          'prompt':self.redactor.readable(response['prompt'],2400)})
             if turn.llm_response:
                 fingerprint=self.redactor.fingerprint(turn.llm_response)
                 if fingerprint!=self.last_llm:
                     self.last_llm=fingerprint;self.active['llm_returns']+=1
                     try:
-                        parsed=json.loads(turn.llm_response);detail={'structure':self.redactor.structure(parsed)}
+                        parsed=json.loads(turn.llm_response)
+                        if self.active['task_type']!=1 and isinstance(parsed,dict):self.redactor.protect(parsed.get('answer'))
+                        detail={'structure':self.redactor.structure(parsed),
+                            'request_id':returned_request_id,'content':self.redactor.readable(parsed,3200)}
                     except json.JSONDecodeError as error:detail={'parse_error':{'line':error.lineno,'column':error.colno,'position':error.pos}}
                     self.emit('llm_return',turn.round_no,detail)
+                    self.artifact(turn.round_no,'llm_return:'+str(returned_request_id),turn.llm_response)
         self.previous={'r':turn.round_no,'gold':turn.team_our.gold,'commands':response.get('roleCommandMap',{}),
                        'vendor':{i.name:i.price for i in turn.vendor_shop},'shop':{i.name:i.price for i in turn.weapon_shop}}
 

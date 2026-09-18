@@ -10,19 +10,19 @@ def summarize_tasks(events, task_id=None, detail_limit=24):
         ident=event.get('task_id');kind=event.get('kind');item=tasks.setdefault(ident,{
             'task_id':ident,'type':event.get('task_type',0),'ordinal':event.get('type_ordinal'),
             'submissions':0,'timeline':[],'outcome':'unknown'})
-        if len(item['timeline'])<48:item['timeline'].append([event.get('r'),kind,event.get('status') or event.get('purpose') or event.get('reason')])
+        if kind!='trace' and len(item['timeline'])<48:item['timeline'].append([event.get('r'),kind,event.get('status') or event.get('purpose') or event.get('reason')])
         if kind=='accept':item['start']=event.get('r')
         elif kind=='submit':item['submissions']+=1
         elif kind=='end':item.update(end=event.get('r'),elapsed=event.get('elapsed'),outcome=event.get('outcome'),
             task_gold=event.get('task_gold'),commands=event.get('commands'),llm_requests=event.get('llm_requests'))
-        if kind=='execution' and not event.get('documents') and event.get('status') not in ('ok','script_ok','api_checked','documents_read',None):
+        if kind=='execution' and not (event.get('documents') and event.get('status')=='unknown') and event.get('status') not in ('ok','script_ok','api_checked','repair_checked','data_ready','documents_read',None):
             key=str(event.get('status'))+':'+str(event.get('schema_details',{}).get('field',''))
             failures[key]+=1
         if kind=='plan_rejected':failures['plan_rejected:'+str(event.get('reason'))]+=1
         use=event.get('reuse',{})
         if use:
-            reuse[use.get('reason','unknown')]+=1
-            if use.get('used'):item['reused_from']=use.get('source');item['reuse_level']=use.get('level')
+            if kind=='method_applied' or not use.get('used'):reuse[use.get('reason','unknown')]+=1
+            if use.get('used') and kind=='method_applied':item['reused_from']=use.get('source');item['reuse_level']=use.get('level')
         if task_id and ident==task_id and len(details)<detail_limit:details.append(event)
     counts={}
     for item in tasks.values():

@@ -138,6 +138,7 @@ def main() -> None:
     parser.add_argument("--max-bytes", type=int, default=16 * 1024 * 1024)
     parser.add_argument("--summary", action="store_true", help="print only a bounded identifier-free diagnostic summary")
     parser.add_argument("--tasks", action="store_true", help="task categories, timelines, failures and reuse")
+    parser.add_argument("--trace", action="store_true", help="readable bounded task evidence; combine with --task-id")
     parser.add_argument("--task-id", help="bounded sanitized details for a task such as T002")
     parser.add_argument("--detail-limit", type=int, default=24)
     args = parser.parse_args()
@@ -161,14 +162,20 @@ def main() -> None:
         except ValueError:
             failed += 1
             continue
-        if args.summary or args.tasks or args.task_id:
+        if args.summary or args.tasks or args.task_id or args.trace:
             events.append(event)
         else:
             print(json.dumps(event, ensure_ascii=False, sort_keys=True))
         decoded += 1
         if decoded >= limit:
             break
-    if args.tasks or args.task_id:
+    if args.trace:
+        selected=[e for e in events if e.get('event')=='task' and (not args.task_id or e.get('task_id')==args.task_id)]
+        for event in selected[:min(max(args.detail_limit,1),256)]:
+            print(f"{event.get('task_id')} r{event.get('r')} {event.get('kind')} {event.get('status','')}")
+            print(json.dumps({k:v for k,v in event.items() if k not in ('event','task_id','r','kind')},ensure_ascii=False))
+        if len(selected)>args.detail_limit:print(json.dumps({'details_omitted':len(selected)-args.detail_limit}))
+    elif args.tasks or args.task_id:
         print(json.dumps(summarize_tasks(events,args.task_id,min(max(args.detail_limit,1),64)),ensure_ascii=False,sort_keys=True))
     elif args.summary:
         print(json.dumps(summarize_events(events), ensure_ascii=False, sort_keys=True))
