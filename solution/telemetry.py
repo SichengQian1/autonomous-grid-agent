@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import logging
+import secrets
 import zlib
 from collections import Counter
 from dataclasses import dataclass
@@ -13,8 +14,13 @@ from typing import Any, Mapping
 from .models import Turn
 
 
+from .log_crypto import seal, unseal, MAX_MESSAGE
+from .log_keys import ACTIVE_KEY_ID, LOG_KEYS
+
 LOGGER = logging.getLogger("aglog")
-PREFIX = "AGLOG2 "
+PREFIX = "AGLOG3 "
+LEGACY_PREFIX = "AGLOG2 "
+PREFIXES = (PREFIX, LEGACY_PREFIX)
 # This is a private wire format, not cryptographic secrecy: the decoder and key
 # ship with the public agent so that every competition log remains recoverable.
 _CODEC_KEY = hashlib.sha256(b"autonomous-grid-agent-v0.2-log-format").digest()
@@ -39,21 +45,47 @@ def _xor_stream(data: bytes, nonce: bytes) -> bytes:
 
 def encode_event(sequence: int, event: Mapping[str, Any]) -> str:
     raw = json.dumps(event, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
-    compressed = zlib.compress(raw, level=6)
-    nonce = max(0, sequence).to_bytes(8, "big", signed=False)
-    cipher = _xor_stream(compressed, nonce)
-    tag = hashlib.blake2s(nonce + cipher, key=_CODEC_KEY, digest_size=12).digest()
-    return PREFIX + base64.b85encode(nonce + tag + cipher).decode("ascii")
+    if len(raw)>MAX_MESSAGE:raise ValueError('log event too large')
+    compressed=zlib.compress(raw,level=6)
+    # Random across restarts and independent matches, unlike the old sequence nonce.
+    nonce=secrets.token_bytes(12)
+    header=(PREFIX+ACTIVE_KEY_ID+' ').encode('ascii')
+    sealed=seal(LOG_KEYS[ACTIVE_KEY_ID],nonce,compressed,header)
+    return header.decode('ascii')+base64.b85encode(nonce+sealed).decode('ascii')
+
+
+def _inflate(raw: bytes) -> dict[str, Any]:
+    decoder=zlib.decompressobj()
+    plain=decoder.decompress(raw,MAX_MESSAGE+1)
+    if len(plain)>MAX_MESSAGE or not decoder.eof or decoder.unused_data:
+        raise ValueError('invalid or oversized log payload')
+    value=json.loads(plain)
+    if not isinstance(value,dict):raise ValueError('log payload must be an object')
+    return value
 
 
 def decode_event(line: str) -> dict[str, Any]:
-    marker = line.find(PREFIX)
+    marker=line.find(PREFIX)
+    if marker>=0:
+        tokens=line[marker+len(PREFIX):].strip().split()
+        if len(tokens)<2:raise ValueError('truncated AGLOG3 record')
+        key_id,token=tokens[:2]
+        if key_id not in LOG_KEYS:raise ValueError('unknown log key ID: '+key_id[:32])
+        if len(token)>MAX_MESSAGE*2:raise ValueError('oversized AGLOG3 record')
+        try:
+            packed=base64.b85decode(token.encode('ascii'))
+            if len(packed)<28:raise ValueError('truncated AGLOG3 payload')
+            return _inflate(unseal(LOG_KEYS[key_id],packed[:12],packed[12:],(PREFIX+key_id+' ').encode('ascii')))
+        except (ValueError,UnicodeError,zlib.error) as error:
+            raise ValueError('invalid AGLOG3: '+str(error)) from error
+    marker = line.find(LEGACY_PREFIX)
     if marker < 0:
         raise ValueError("not an AGLOG2 record")
-    tokens = line[marker + len(PREFIX):].strip().split()
+    tokens = line[marker + len(LEGACY_PREFIX):].strip().split()
     if not tokens:
         raise ValueError("empty AGLOG2 record")
     token = tokens[0]
+    if len(token)>MAX_MESSAGE*2:raise ValueError("oversized AGLOG2 record")
     try:
         packed = base64.b85decode(token.encode("ascii"))
     except (ValueError, UnicodeEncodeError) as error:
@@ -65,7 +97,7 @@ def decode_event(line: str) -> dict[str, Any]:
     if not hmac.compare_digest(tag, expected):
         raise ValueError("AGLOG2 integrity check failed")
     try:
-        value = json.loads(zlib.decompress(_xor_stream(cipher, nonce)))
+        value = _inflate(_xor_stream(cipher, nonce))
     except (ValueError, zlib.error, json.JSONDecodeError) as error:
         raise ValueError("invalid AGLOG2 payload") from error
     if not isinstance(value, dict):
@@ -86,7 +118,12 @@ def build_turn_event(
     elapsed_ms: int,
     dropped_actions: int,
 ) -> dict[str, Any]:
+    from .economy import front_wall_number, wall_level_goal, due_defense_targets
+    from .rules import DEFAULT_CONFIG
+    from .maintenance import wall_damage_risk
+    from .defense import own_threats
     station = turn.team_our.station()
+    threats = own_threats(turn)
     living_robots = tuple(robot for robot in turn.robots if robot.health > 0)
     robot_counts = Counter(
         f"{robot.role_type}:{robot.target_team or '?'}" for robot in living_robots
@@ -144,7 +181,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.11",
+        "agentVersion": "v0.12",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,
@@ -168,6 +205,14 @@ def build_turn_event(
         "dropped": max(0, dropped_actions),
         "treasureResult": turn.last_summon_treasure_result,
         "map": {"width": turn.map_info.width, "height": turn.map_info.height},
+        "defenseSchedule": {
+            "due": [[u.role_type, front_wall_number(turn,u) if u.role_type=='wall' else None, u.level]
+                    for u in due_defense_targets(turn,DEFAULT_CONFIG)],
+            "frontWalls": [[front_wall_number(turn,u),u.health,u.level,wall_level_goal(turn,u),
+                            *wall_damage_risk(u,DEFAULT_CONFIG,threats)]
+                           for u in turn.team_our.roles if u.role_type=='wall' and u.alive and front_wall_number(turn,u)],
+            "repairStock": {str(u.unit_id):u.backpack.count('WallFixer') for u in turn.controllable},
+        },
         "readiness": {
             "weapons": sum(u.is_weapon and u.alive for u in turn.team_our.roles),
             "walls": sum(u.role_type == "wall" and u.alive for u in turn.team_our.roles),

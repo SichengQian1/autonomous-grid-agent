@@ -45,7 +45,7 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The v0.11 candidate implementation is active. It includes
+The v0.12 candidate implementation is active. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
 state machines, bounded encoded telemetry, and opponent modes. Summon pressure and
@@ -76,7 +76,7 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.11`, this produces `submissions/v0/submission-v0.11.tar.gz`. The archive
+For `v0.12`, this produces `submissions/v0/submission-v0.12.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
@@ -84,25 +84,35 @@ major strategy or architecture generation starts `codex/v1`.
 
 ## Decode match telemetry
 
-The agent writes bounded `AGLOG2` records to standard error, which the platform may
-expose as its downloadable `.log`. The format is compressed, integrity-checked, and
-reversibly obscured; because its decoder is public, it is not cryptographic secrecy.
-Decode either the original log or a user-compressed `.log.xz` in PowerShell:
+The agent writes bounded `AGLOG3` records to standard error. v0.12 uses a generated
+256-bit project key, fresh random 96-bit nonces, and ChaCha20-Poly1305 authenticated
+encryption ([RFC 8439](https://datatracker.ietf.org/doc/html/rfc8439)). It requires no
+third-party runtime packages. The keyring is intentionally published in
+`solution/log_keys.py` at the user's request for zero-setup decoding. **Anyone with
+this repository or submission can decrypt these logs; this is not public secrecy.**
+The pure-Python codec is for telemetry only, is not constant-time, and has not had
+an independent security audit. Sensitive fields are still redacted before encryption.
+
+Pull the repository, then decode in PowerShell. `--output` writes UTF-8 directly
+and refuses to overwrite an existing file:
 
 ```powershell
-python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" > decoded.jsonl
+python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" --output decoded.jsonl
 ```
 
-For a compact shareable diagnosis, add `--summary` instead of redirecting output.
-This accepts v0.2–v0.11 logs and already-decoded JSONL, including `.xz` files.
+For a compact shareable diagnosis, use `--summary` without `--output`.
+The decoder accepts v0.2–v0.12 formats and decoded JSONL, including `.xz` files.
+Keep historical key IDs when rotating the active key. Decoding restores recorded,
+bounded, sanitized events; it cannot recover unrecorded or redacted content.
 v0.5 also records command rejection/error categories, changing mine locations,
 individual recalls, carrier ownership, and strategy fallback counts. It records
 task progress reasons, current prices, procurement stages, and why
 each weapon did not fire. Readiness and day/night boundaries are retained under
 a whole-match log budget.
 
-Task text, prompts, answers, command output, team IDs, names, and URLs are never
-written to these records. Logging is capped so diagnostics cannot grow without bound.
+Turn events exclude task contents. Dedicated task events include bounded sanitized
+requirements, model responses and command evidence; credentials, proof values, team
+identifiers and internal URLs are redacted. Logging is capped.
 
 The v0.6 iteration preserves task documents and discovered workspaces across command
 failures, shares physical return budgets across work and recall, cashes out complete
@@ -126,7 +136,13 @@ request bindings from current documents/errors, check pagination, and give the c
 data to the model for interpretation. Unknown tasks retain the general solver route.
 Match-local API method hints are revalidated with fresh credentials and query objects.
 Retrieved-data candidates are distinct from independently verified calculations and
-platform-confirmed full success. Defense and economic policy remain the v0.9 experiment.
+platform-confirmed full success. v0.12 accepts direct, wrapped, and string-serialized
+API answer objects through the same evidence and schema gates. Repair workflows retain
+the v0.11 path. On day five, base level two and one level-three core wall take precedence
+over remaining weapon upgrades; by day six both front walls 2/3 are due. Front walls
+1/4 stop at level two. The pioneer stocks up to two repair items from day five when
+affordable after required development funding. Wall support ranks estimated exposure
+and travel time; robot targets are not observable. See operating logic for limits.
 
 Task diagnostics: use `--tasks` for summaries, or
 `--trace --task-id T002 --detail-limit 128` for readable bounded evidence, including

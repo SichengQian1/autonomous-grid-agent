@@ -22,7 +22,7 @@ from .economy import (
     weapon_build_objectives,
 )
 from .grid import OccupancyGrid, distance_field, interaction_cells, shortest_path
-from .logistics import plan_upgrade_or_repair, LogisticsManager
+from .logistics import plan_upgrade_or_repair, LogisticsManager, plan_repair_stock
 from .models import Turn, Unit
 from .movement import MoveIntent, schedule_moves
 from .opponent import OpponentModel, StrategyMode, choose_mode, desired_boss_orders
@@ -267,7 +267,9 @@ class CompetitionPlanner:
 
             advanced = AdvancedPlan()
             if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task and turn.day_index>=2:
-                purchase=self.logistics.plan(turn,pioneer,budget,config)
+                purchase=plan_repair_stock(turn,pioneer,budget,config)
+                if purchase.action is None and purchase.move is None:
+                    purchase=self.logistics.plan(turn,pioneer,budget,config)
                 self._merge_advanced(purchase,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used:
                 advanced = self._safe_task_plan(

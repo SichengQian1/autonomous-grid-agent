@@ -50,21 +50,52 @@ def front_walls(turn: Turn) -> list[Unit]:
                   key=lambda u:(priority.get(frame.normalize(u.pos).y,99),u.unit_id))
 
 
+def front_wall_number(turn: Turn, wall: Unit) -> int | None:
+    station = turn.team_our.station()
+    if not station or not wall.pos: return None
+    cells = turn.coordinate_frame.normalize_cells(station.footprint())
+    pos = turn.coordinate_frame.normalize(wall.pos)
+    if pos.x != max(p.x for p in cells) + 2: return None
+    number = max(p.y for p in cells) + 3 - pos.y
+    return number if 1 <= number <= 6 else None
+
+
+def wall_level_goal(turn: Turn, wall: Unit) -> int:
+    # The two centre-left front cells are the permanent level-three priorities.
+    return 3 if front_wall_number(turn, wall) in (2, 3) else 2
+
+
+def due_defense_targets(turn: Turn, config: StrategyConfig) -> list[Unit]:
+    targets = []
+    station = turn.team_our.station()
+    if turn.day_index >= config.base_level_two_day and station and station.level < 2:
+        targets.append(station)
+    if turn.day_index >= config.first_core_wall_day:
+        core = [w for w in front_walls(turn) if front_wall_number(turn,w) in (2,3)]
+        needed = 2 if turn.day_index >= config.both_core_walls_day else 1
+        # Finish the most developed surviving core first; stable ID-independent order.
+        missing = max(0, needed - sum(w.level >= 3 for w in core))
+        targets.extend(sorted((w for w in core if w.level < 3),
+                              key=lambda w:(-w.level, front_wall_number(turn,w)!=3))[:missing])
+    return targets
+
+
 def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
-    """Protect one permanent defensive improvement from incidental spending."""
-    if not config.protect_development_fund:
-        return None
-    weapons=existing_weapons(turn)
-    if len(weapons)<config.max_weapon_count:
-        return None
-    rockets=sorted((w for w in weapons if w.role_type=="rocket"),key=lambda w:w.unit_id)
-    # User-approved v0.9 milestone: all guns level two, then all level three.
-    prices={i.name:i.price for i in turn.weapon_shop}
-    basic=next((w for w in sorted(weapons,key=lambda w:(w.level,w.role_type!='rocket',w.unit_id)) if w.level<3 and (prices.get(upgrade_item(w),0)>0 or not prices)),None)
-    if basic is not None:return basic
-    station=turn.team_our.station()
-    if station is not None and station.level<3:return station
-    return next((w for w in front_walls(turn) if w.level<3),None)
+    """Weapons first until scheduled base/wall readiness becomes due."""
+    if not config.protect_development_fund: return None
+    due = due_defense_targets(turn, config)
+    if due: return due[0]
+    weapons = existing_weapons(turn)
+    if len(weapons) < config.max_weapon_count: return None
+    prices = {i.name:i.price for i in turn.weapon_shop}
+    basic = next((w for w in sorted(weapons,key=lambda w:(w.level,w.role_type!='rocket',w.unit_id))
+                  if w.level < 3 and (prices.get(upgrade_item(w),0)>0 or not prices)),None)
+    if basic is not None: return basic
+    station = turn.team_our.station()
+    if station is not None and station.level < 2: return station
+    wall = next((w for w in front_walls(turn) if w.level < wall_level_goal(turn,w)),None)
+    if wall: return wall
+    return station if station is not None and station.level < 3 else None
 
 
 def defense_budget(

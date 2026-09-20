@@ -336,7 +336,7 @@ class TaskAudit:
                 self.artifact(turn.round_no,'command:'+str(self.active['commands']),plan)
             if response.get('prompt'):
                 self.active['llm_requests']+=1
-                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v011-workflow-1',
+                self.emit('llm_request',turn.round_no,{'purpose':manager.task_stage,'template':'v012-workflow-1',
                           'request_id':self.active['llm_requests'],'reuse':manager.series.last_reuse,'reason':manager.diagnostic,
                           'prompt':self.redactor.readable(response['prompt'],2400)})
             if turn.llm_response:

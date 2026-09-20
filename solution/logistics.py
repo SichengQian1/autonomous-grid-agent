@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from collections import Counter
 
 from .actions import Action, ActionType
-from .economy import DefenseBudget, next_development_target, upgrade_item, front_walls
+from .economy import DefenseBudget, next_development_target, upgrade_item, front_walls, due_defense_targets, wall_level_goal
 from .models import Turn, Unit
 from .movement import MoveIntent
 from .grid import OccupancyGrid, distance_field, interaction_cells
@@ -103,11 +103,12 @@ class LogisticsManager:
         def distance(target):
             return min((distances.get(p,10000) for p in goals(target)),default=10000)
         options = _maintenance_options(turn,config)
+        due_ids = {u.unit_id for u in due_defense_targets(turn,config)}
         first_rocket = any(u.role_type == ROLE_ROCKET and u.level >= 2 and u.alive for u in turn.team_our.roles)
         if not first_rocket:
             # Fund the first power increase before buying optional small items.
             options = [o for o in options if o[0] in role.backpack or critically_damaged(o[1])
-                       or (o[1].role_type == ROLE_ROCKET and o[1].level == 1)]
+                       or o[1].unit_id in due_ids or (o[1].role_type == ROLE_ROCKET and o[1].level == 1)]
         development=next_development_target(turn,config)
         development_id=development.unit_id if development else None
         development_item=upgrade_item(development)
@@ -116,12 +117,20 @@ class LogisticsManager:
         first_levels = any(u.is_weapon and u.level == 1 for u in turn.team_our.roles)
         def value(option):
             name,target,score = option
+            if target.unit_id in due_ids: score += 60000
             if target.unit_id==development_id: score += 50000
             if first_levels and target.is_weapon and target.level == 1: score += 3000
             if name == "WallFixer" and target.health < estimated_max_health(target)//3: score += 3000
             if target.role_type != ROLE_WALL and critically_damaged(target): score += 6000
-            if critically_damaged(target): score += 30000
+            if critically_damaged(target): score += 200000
             return score - distance(target)*20
+        if due_ids:
+            # Do not spend the deadline basket on another weapon or base level 3.
+            # Carried off-duty vouchers must not pin a pre-deadline shopping order.
+            options = [o for o in options if o[1].unit_id in due_ids or critically_damaged(o[1])]
+        options = [o for o in options if not (turn.is_day and o[1].role_type == ROLE_WALL
+                   and o[1].unit_id not in due_ids and o[0] in role.backpack
+                   and o[1].health > estimated_max_health(o[1])*config.wall_heal_fraction)]
         options = sorted((o for o in options if distance(o[1]) < 10000), key=value, reverse=True)
         self.orders = [order for order in self.orders if any(
             name == order.item and target.unit_id == order.target_id and target.level == order.level
@@ -143,7 +152,7 @@ class LogisticsManager:
                         owned[name] -= 1
                         continue
                     price = prices.get(name,0)
-                    urgent = critically_damaged(target) or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET)
+                    urgent = critically_damaged(target) or target.unit_id in due_ids or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET)
                     allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if urgent else budget.offensive
                     if not urgent and not any(o.target_id==development_id for o in self.orders):
                         allowance=max(0,allowance-reserve)
@@ -167,7 +176,7 @@ class LogisticsManager:
         if turn.is_day and any(o.item in role.backpack and (o.item=='WallFixer' or o.item.startswith('WallUpgradeVoucher')) for o in self.orders):
             owned=next(o for o in self.orders if o.item in role.backpack)
             target=turn.team_our.unit(owned.target_id)
-            if target and target.health>estimated_max_health(target)*config.wall_heal_fraction:
+            if target and target.unit_id not in due_ids and target.health>estimated_max_health(target)*config.wall_heal_fraction:
                 self.orders=[];self.carrier_id=None;self.stage='carry_wall_reserve';return LogisticsPlan()
         # Buy a planned basket, then deliver without re-ranking it every turn.
         needed = Counter(o.item for o in self.orders) - Counter(role.backpack)
@@ -179,7 +188,7 @@ class LogisticsManager:
         missing_cost = sum(prices.get(name,100000)*n for name,n in needed.items())
         # Reserves can fund critical repairs and the first rocket power increase.
         emergency_order = any((target := turn.team_our.unit(o.target_id)) is not None and (critically_damaged(target)
-                              or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET))
+                              or target.unit_id in due_ids or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET))
                               for o in self.orders)
         spending = max(budget.offensive, turn.team_our.gold-budget.mandatory) if emergency_order else budget.offensive
         target = turn.team_our.unit(delivery.target_id) if delivery else None
@@ -239,6 +248,7 @@ def _maintenance_options(turn: Turn, config: StrategyConfig = DEFAULT_CONFIG) ->
         front_targets={u.unit_id for u in sorted((u for u in walls if u.level==1),
                         key=lambda u:(u.health,abs(frame.normalize(u.pos).y-center)))[:quota]}
     prioritized={u.unit_id:i for i,u in enumerate(front_walls(turn)[:4])}
+    due_ids={u.unit_id for u in due_defense_targets(turn,config)}
     for target in turn.team_our.roles:
         if target.health <= 0 or target.pos is None:
             continue
@@ -255,7 +265,7 @@ def _maintenance_options(turn: Turn, config: StrategyConfig = DEFAULT_CONFIG) ->
                 )
         elif target.role_type == ROLE_WALL:
             front_upgrade=target.unit_id in front_targets or (turn.day_index>=config.night_support_day and target.unit_id in prioritized)
-            if target.level in {1, 2} and (missing >= max_health // 5 or front_upgrade):
+            if target.level in {1, 2} and target.level < wall_level_goal(turn,target) and (missing >= max_health // 5 or front_upgrade or target.unit_id in due_ids):
                 result.append(
                     (f"WallUpgradeVoucher{target.level}", target, upgrade_value(turn, target)
                      + (2400 if front_upgrade else 0) + (3000 if critically_damaged(target) else 0))
@@ -280,6 +290,8 @@ def plan_upgrade_or_repair(
         return LogisticsPlan()
 
     options = _maintenance_options(turn,config)
+    due_ids={u.unit_id for u in due_defense_targets(turn,config)}
+    options=[(name,target,priority+(100000 if target.unit_id in due_ids and 'UpgradeVoucher' in name else 0)+(200000 if critically_damaged(target) else 0)) for name,target,priority in options]
     if critical_only:
         options = [
             option
@@ -298,7 +310,7 @@ def plan_upgrade_or_repair(
     for name, target, priority in options:
         if name not in role.backpack:
             continue
-        if target.role_type==ROLE_WALL and target.health>estimated_max_health(target)*config.wall_heal_fraction:
+        if target.role_type==ROLE_WALL and target.unit_id not in due_ids and target.health>estimated_max_health(target)*config.wall_heal_fraction:
             continue
         if role.pos.distance_to(target.pos) <= 1:
             return LogisticsPlan(
@@ -336,3 +348,25 @@ def plan_upgrade_or_repair(
             priority=75,
         )
     )
+
+
+def plan_repair_stock(turn: Turn, role: Unit, budget: DefenseBudget, config: StrategyConfig) -> LogisticsPlan:
+    """Daytime pioneer reserve, funded only after the next development purchase."""
+    if not turn.is_day or turn.day_index < config.repair_stock_day or role.role_type != 'pioneer' or not role.pos:
+        return LogisticsPlan()
+    if due_defense_targets(turn,config): return LogisticsPlan()
+    missing = max(0, config.pioneer_repair_stock - role.backpack.count('WallFixer'))
+    capacity = max(0,role.backpack_capacity-len(role.backpack))
+    prices = {i.name:i.price for i in turn.weapon_shop}
+    price = prices.get('WallFixer',0)
+    target = next_development_target(turn,config)
+    item = upgrade_item(target)
+    reserve = prices.get(item,0) if item and not any(item in r.backpack for r in turn.controllable) else 0
+    quantity = min(missing,capacity,max(0,budget.offensive-reserve)//price) if price > 0 else 0
+    if quantity <= 0: return LogisticsPlan()
+    grid = OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+    goals = tuple(p for shop in turn.zone_positions('weaponShop') for p in interaction_cells(grid,shop))
+    if not goals or not TravelBudget.for_role(turn,role,config).fits([(goals,1)]): return LogisticsPlan()
+    if role.pos in goals:
+        return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name='WallFixer',quantity=quantity))
+    return LogisticsPlan(move=MoveIntent(role.unit_id,goals,86))

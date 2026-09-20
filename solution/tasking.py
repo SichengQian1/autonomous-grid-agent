@@ -581,6 +581,21 @@ class TaskManager:
                 else:
                     command = safe_task_command(requested, self.context.workspace if self.context.resolved else None)
                 answer = parsed.get("answer")
+                transport = 'wrapped_object'
+                if category == 1 and isinstance(self.context.required, dict):
+                    # Model answer transport is independent of business correctness.
+                    # Only the current complete contract can identify a bare answer.
+                    controls = {'procedure', 'command', 'script', 'python'}
+                    if answer is None and self.context.required and not controls.intersection(parsed) and set(self.context.required) <= set(parsed):
+                        answer = {key: parsed[key] for key in self.context.required}
+                        transport = 'direct_object'
+                    elif isinstance(answer, str):
+                        answer = parse_structured_llm(answer)
+                        transport = 'serialized_object'
+                    if answer is not None:
+                        self.audit.emit('answer_received', turn.round_no,
+                            {'transport': transport, 'fields': sorted(answer) if isinstance(answer, dict) else [],
+                             'evidence': 'retrieved_current_data' if self.context.data_ready else 'unconfirmed'})
                 if category==1 and answer is not None and self.context.data_ready:
                     issue=self.context.data_answer_error(answer)
                     if issue:
@@ -788,7 +803,7 @@ class TaskManager:
     def _sop_prompt(self, turn):
         category=self.audit.active['task_type'] if self.audit.active else task_category(turn,self.task_position)
         methods=self.series.prompt(category)
-        common=(f"SOP v011. Task category={category}. Match-local methods with evidence levels: {methods}. "
+        common=(f"SOP v012. Task category={category}. Match-local methods with evidence levels: {methods}. "
             "These are methods, never current answers or credentials. Re-read current requirements. "
             "To save/reuse a method attach compatibility:{contract:<answer-field/type signature>,schema:<documented response/project schema version>}. "
             "Only use reuse:true after checking these against current docs. Changes require a fresh plan. "

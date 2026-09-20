@@ -94,13 +94,89 @@ After a change:
 - `solution/maintenance.py`: threatened front-wall support and retreat.
 - `solution/opponent.py`: opponent evidence and global strategic modes.
 - `solution/planner.py`: full-match orchestration and degradation boundaries.
-- `solution/telemetry.py`: bounded sanitized `AGLOG2` records.
+- `solution/telemetry.py`: bounded sanitized `AGLOG3` records (legacy decoding retained).
 
 The V1 planner is active. It produces validated construction, movement, economy,
 recall, combat, task, treasure, upgrade, and evidence-gated strategic actions. An
 empty command map remains only a deliberate wait or final safety fallback.
 
 ## Change Log
+
+### 2026-09-20 - v0.12 API answer transport, defense deadlines and keyed logs
+
+Evidence and scope:
+
+- Started at 28c8b226fdb1547e02b8370b11f8f8b6fd2d897f on codex/v0. The user's
+  existing AGENTS.md changes remain excluded from this release.
+- Five returned runs: repair 15/15 full, API 8/15 full and 7/15 zero/unsubmitted.
+  All API bootstraps reported complete current data. Every failed API task received
+  a direct answer object; two also received a serialized object in answer. The
+  manager ignored the former and schema-checked the latter before parsing it.
+  This proves an answer-transport defect, not correctness of every unsubmitted value.
+- Two new comparison runs completed 12/12 tasks for full rewards. Their API path
+  still used actual retrieval, one model computation and immediate submission.
+  Repair used one checker workflow without model calls. Preserve the successful
+  current retrieval/repair procedures instead of replacing them.
+- Three supplied own runs already lost their base on night four. Day-five readiness
+  targets alone cannot establish survival improvement or remove the earlier weakness.
+
+Changes:
+
+1. Normalize direct objects, wrapped objects and serialized answer objects for API
+   tasks using the current contract, then retain existing execution/completeness,
+   shape, query/count/category and stale-task gates. Record answer transport explicitly.
+   Repair proof extraction, checker protection and immediate submission are unchanged.
+2. Through day four, keep all weapons level two before level three. From day five,
+   prioritize base level two and one of normalized front walls 2/3 at level three;
+   from day six both walls are due. Replace pending ordinary shopping orders and
+   proactively deliver/use due vouchers even while healthy. Finish the higher-level
+   core wall first, with wall 3 as equal-level tie-break. Front walls 1/4 and other
+   non-core walls stop at level two. Critical repairs may interrupt milestones.
+3. From day five the idle daytime pioneer can stock up to two repair items, bounded
+   by current prices, capacity, development funds and real return travel. Healthy-wall
+   vouchers reserved for night no longer repeatedly block new daytime procurement.
+4. Front support ranks estimated damage exposure, remaining health and actual travel,
+   then heals a reachable endangered wall or retreats. It can trigger above the fixed
+   40% threshold when exposure warrants it. Requests do not expose the next robot
+   target; observed comparison payloads also omit optional attack stats. These are
+   conservative per-wall estimates with runtime values or fallback stats, not exact
+   future damage. Do not sum multi-wall estimates or assume this turn's kill prevents
+   robot damage. Telemetry records front-wall goals, exposure estimates and inventory.
+5. AGLOG3 uses RFC 8439 ChaCha20-Poly1305 with random 96-bit nonces and a generated
+   256-bit project key, implemented using only Python's standard library. RFC vectors,
+   authentication failures, nonce variation and AGLOG2 compatibility have regressions.
+   The user explicitly chose publishing the project keyring for zero-setup decoding
+   after being told the repository is public. It is intentionally public transport
+   key material, not an account secret. Repository/archive readers can decrypt logs;
+   this is not confidentiality from those readers. Pure Python is not constant-time
+   and has no independent security audit. Redaction and log budgets remain enabled.
+   The decoder's optional --output writes UTF-8 JSONL and refuses to overwrite files.
+   Keep historical keys when rotating; decoded output is bounded sanitized evidence.
+
+Validation and remaining work:
+
+- Saved failing synthetic answer/deadline cases before fixes. New tests cover transport
+  variants and evidence rejection, mirror-consistent wall numbering, fifth/sixth-day
+  targets, healthy-wall use, stale order replacement, a funded multi-turn purchase/
+  movement/delivery cycle, reserve-aware two-item stocking, held-voucher procurement,
+  wall caps and risk-triggered healing. Existing repair and task isolation tests remain.
+- Full suite: 294 tests pass, including both 1300-turn synthetic sides. Source and
+  clean archive HTTP checks pass for malformed JSON, both restricted 71-turn openings
+  (three rockets, 12/13 walls, two operators), valid AGLOG3 decoding and runtime-file
+  equality. Highest measured HTTP response in that check was 176.7 ms.
+  Python 3.11 syntax parsing and compileall pass; execution used Python 3.14.6.
+  Eleven crypto payload lengths also matched the installed development reference
+  implementation; that library is not imported by the submission or required at runtime.
+- No official match was launched. Exact Python 3.11.10 is still unavailable locally.
+  Adequate gold, live couriers, stock and routes are prerequisites for deadline goals;
+  they are not guarantees of engine outcomes. API independent semantic verification
+  is unchanged, so higher submission rate would not by itself prove full correctness.
+- Next evidence: API full/unsubmitted rate and 3/3 runs; repair 3/3 preservation;
+  first-night task income; base level before round 591, one core wall before 591 and
+  both before 721; repair stocks, actual damage versus exposure, courier deaths and
+  unmet schedules; night-four survival and normal-turn protocol errors.
+- Release: `submissions/v0/submission-v0.12.tar.gz` (35 runtime files).
+- SHA-256: `80b2732d6ffc36d1a5634d1a292957b5eba3da24968f12ac54d05bcab9676f71`.
 
 ### 2026-09-18 - v0.11 executable task workflows and readable evidence
 

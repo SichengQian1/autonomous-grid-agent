@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode bounded AGLOG2 records from a .log or user-compressed .log.xz file."""
+"""Decode bounded AGLOG2/AGLOG3 records from a .log or user-compressed .log.xz file."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.diagnostics.task_report import summarize_tasks
-from solution.telemetry import PREFIX, decode_event  # noqa: E402
+from solution.telemetry import PREFIXES, decode_event  # noqa: E402
 
 
 def iter_lines(path: Path, max_bytes: int):
@@ -141,17 +141,23 @@ def main() -> None:
     parser.add_argument("--trace", action="store_true", help="readable bounded task evidence; combine with --task-id")
     parser.add_argument("--task-id", help="bounded sanitized details for a task such as T002")
     parser.add_argument("--detail-limit", type=int, default=24)
+    parser.add_argument('--output', type=Path, help='write decoded UTF-8 JSONL to a NEW file')
     args = parser.parse_args()
+    if args.output and (args.summary or args.tasks or args.task_id or args.trace):
+        parser.error('--output is only for decoded JSONL; omit summary/detail options')
+    if args.output and args.output.exists():
+        parser.error('--output already exists; choose a new filename')
     if not args.log.is_file():
         raise SystemExit(f"log not found: {args.log}")
     limit = min(max(args.limit, 1), 10000)
     max_bytes = min(max(args.max_bytes, 1024), 64 * 1024 * 1024)
+    output = args.output.open('x',encoding='utf-8',newline='\n') if args.output else sys.stdout
     decoded = 0
     failed = 0
     events = []
     for line in iter_lines(args.log, max_bytes):
         try:
-            if PREFIX in line:
+            if any(prefix in line for prefix in PREFIXES):
                 event = decode_event(line)
             elif line.lstrip().startswith("{"):
                 event = json.loads(line)
@@ -165,10 +171,11 @@ def main() -> None:
         if args.summary or args.tasks or args.task_id or args.trace:
             events.append(event)
         else:
-            print(json.dumps(event, ensure_ascii=False, sort_keys=True))
+            print(json.dumps(event, ensure_ascii=False, sort_keys=True),file=output)
         decoded += 1
         if decoded >= limit:
             break
+    if args.output: output.close()
     if args.trace:
         selected=[e for e in events if e.get('event')=='task' and (not args.task_id or e.get('task_id')==args.task_id)]
         for event in selected[:min(max(args.detail_limit,1),256)]:

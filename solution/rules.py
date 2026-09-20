@@ -102,6 +102,11 @@ class StrategyConfig:
     shared_rocket_control: bool = True
     night_support_day: int = 3
     robot_attack_range_fallback: int = 3
+    base_level_two_day: int = 5
+    first_core_wall_day: int = 5
+    both_core_walls_day: int = 6
+    repair_stock_day: int = 5
+    pioneer_repair_stock: int = 2
     wall_heal_fraction: float = 0.40
     wall_retreat_fraction: float = 0.20
     defer_weapon_delivery: bool = True
