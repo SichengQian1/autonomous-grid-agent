@@ -25,6 +25,8 @@ class WorldState:
     failed_move_counts: dict[int, int] = field(default_factory=dict)
     night_economy_failures: int = 0
     night_economy_disabled: bool = False
+    night_role_pauses: dict[int, int] = field(default_factory=dict)
+    night_role_failures: dict[int, int] = field(default_factory=dict)
     rear_threat_observed: bool = False
     previous_station_health: int | None = None
     recall_day: int = -1
@@ -48,6 +50,8 @@ class WorldState:
         self.failed_move_counts.clear()
         self.night_economy_failures = 0
         self.night_economy_disabled = False
+        self.night_role_pauses.clear()
+        self.night_role_failures.clear()
         self.rear_threat_observed = False
         self.previous_station_health = None
         self.recall_day = -1
@@ -72,6 +76,9 @@ class WorldState:
         if turn.round_no > self.last_round_no:
             self.turns_seen += 1
         self.last_round_no = turn.round_no
+        if turn.is_day:
+            self.night_role_failures.clear()
+            self.night_role_pauses.clear()
         self.last_action_results = dict(turn.last_action_results)
         self.last_errors = turn.errors
         self.last_command_result = turn.last_command_result
@@ -133,7 +140,9 @@ class WorldState:
                 ActionType.BUY,
             }:
                 self.night_economy_failures += 1
-                self.night_economy_disabled = True
+                failures=self.night_role_failures.get(actor_id,0)+1
+                self.night_role_failures[actor_id]=failures
+                self.night_role_pauses[actor_id]=turn.day_index*130+1 if failures>=3 else turn.round_no+3*failures
 
     def _observe_rear_threat(self, turn: Turn) -> None:
         station = turn.team_our.station()

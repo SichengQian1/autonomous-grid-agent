@@ -12,6 +12,7 @@ from .protocol import safe_response, serialize_decision
 from .rules import DEFAULT_CONFIG, StrategyConfig
 from .state import LlmBudget, WorldState
 from .telemetry import Telemetry
+from .operation_audit import OperationAudit
 from .validation import ActionValidator
 
 
@@ -25,6 +26,7 @@ class AgentEngine:
         self.llm_budget = LlmBudget()
         self.validator = ActionValidator()
         self.planner = CompetitionPlanner()
+        self.operations = OperationAudit()
         self.telemetry = Telemetry(
             config.telemetry_byte_budget,
             config.telemetry_reserve_bytes,
@@ -68,8 +70,15 @@ class AgentEngine:
             self.state.record_decision(turn, accepted)
             try:
                 if self.telemetry.generation != self.state.generation:
+                    self.operations = OperationAudit()
                     self.telemetry = Telemetry(self.config.telemetry_byte_budget, self.config.telemetry_reserve_bytes,
                                                generation=self.state.generation)
+                for action in accepted.actions:
+                    self.planner.treasure.issued(turn,action)
+                self.operations.record(turn,response,self.planner)
+                for event in self.operations.drain():
+                    if not self.telemetry.emit(event,critical=event.get('stage') in ('result','settlement','opening','validation')):
+                        self.operations.dropped+=1
                 self.planner.tasks.audit.record(turn,response,self.planner.tasks)
                 for event in self.planner.tasks.audit.drain():
                     if not self.telemetry.emit(event,critical=event.get('kind') in ('accept','execution','submit','end')):
@@ -79,6 +88,10 @@ class AgentEngine:
                     elapsed_ms=int((time.monotonic() - started_at) * 1000),
                     dropped_actions=len(issues),
                     diagnostics={
+                        "operationLogDropped": self.operations.dropped,
+                        "supportWorker": self.planner.support_id,
+                        "gunHandover": self.planner.guard.phase,
+                        "treasureStage": self.planner.treasure.reason,
                         "taskLogDropped": self.planner.tasks.audit.dropped,
                         "taskLogBytes": self.planner.tasks.audit.total_used,
                         "taskPhase": str(getattr(self.planner.tasks, "phase", "unknown")),
@@ -119,8 +132,7 @@ class AgentEngine:
         finally:
             self._lock.release()
 
-    @staticmethod
-    def _weapon_diagnostics(turn, response):
+    def _weapon_diagnostics(self, turn, response):
         from .defense import own_threats
         threats = own_threats(turn)
         result = []
@@ -140,8 +152,8 @@ class AgentEngine:
             elif not any(r.pos and r.pos.distance_to(weapon.pos)<=weapon.attack_range for r in threats):
                 reason = "out_of_range"
             else:
-                controllers={command.get('controllerId') for command in response['roleCommandMap'].values() if command.get('action')=='attack'}
-                reason = 'shared_controller_busy' if any(r.unit_id in controllers and r.pos and r.pos.distance_to(weapon.pos)<=1 for r in turn.controllable) else "allocation_or_validation"
+                controllers={str(command.get('controllerId')) for command in response['roleCommandMap'].values() if command.get('action')=='attack'}
+                reason = 'shared_controller_busy' if any(str(r.unit_id) in controllers and r.pos and r.pos.distance_to(weapon.pos)<=1 for r in turn.controllable) else ("handover_"+self.planner.guard.phase if self.planner.guard.phase in ("replacement_approach","vacate_common_post","enter_common_post") else "controller_action_or_validation")
             result.append([weapon.role_type,[weapon.pos.x,weapon.pos.y],reason])
         return result
 

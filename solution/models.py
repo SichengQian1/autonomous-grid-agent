@@ -243,6 +243,7 @@ class WorldNews:
 class ShopItem:
     name: str = ""
     price: int = 0
+    description: str = ""
 
     @classmethod
     def from_raw(cls, raw: object) -> ShopItem:
@@ -250,6 +251,7 @@ class ShopItem:
         return cls(
             name=_string(data.get("name")),
             price=max(0, _integer(data.get("price"))),
+            description=_string(data.get("description") or data.get("desc") or data.get("effect")),
         )
 
 

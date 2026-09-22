@@ -10,6 +10,9 @@ from .rules import RESOURCE_ZONE_TYPES, ROLE_WALL, StrategyConfig
 from .state import WorldState
 from .grid import OccupancyGrid, distance_field
 from .grid import interaction_cells
+from .route_safety import safe_grid, escape_intent
+from dataclasses import replace
+import math
 from .actions import Action, ActionType
 from .movement import MoveIntent
 from .travel import TravelBudget
@@ -60,24 +63,46 @@ def front_wall_number(turn: Turn, wall: Unit) -> int | None:
     return number if 1 <= number <= 6 else None
 
 
+def side_wall_a(turn: Turn, wall: Unit) -> bool:
+    station=turn.team_our.station()
+    if not station or not wall.pos:return False
+    cells=turn.coordinate_frame.normalize_cells(station.footprint())
+    return turn.coordinate_frame.normalize(wall.pos)==Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+2)
+
+
 def wall_level_goal(turn: Turn, wall: Unit) -> int:
-    # The two centre-left front cells are the permanent level-three priorities.
-    return 3 if front_wall_number(turn, wall) in (2, 3) else 2
+    number=front_wall_number(turn,wall)
+    if number in (2,3):return 3
+    if number in (1,4) and turn.day_index>=6:return 3
+    if turn.day_index>=9 and (number in (5,6) or side_wall_a(turn,wall)):return 3
+    return 2
 
 
 def due_defense_targets(turn: Turn, config: StrategyConfig) -> list[Unit]:
-    targets = []
-    station = turn.team_our.station()
-    if turn.day_index >= config.base_level_two_day and station and station.level < 2:
-        targets.append(station)
-    if turn.day_index >= config.first_core_wall_day:
-        core = [w for w in front_walls(turn) if front_wall_number(turn,w) in (2,3)]
-        needed = 2 if turn.day_index >= config.both_core_walls_day else 1
-        # Finish the most developed surviving core first; stable ID-independent order.
-        missing = max(0, needed - sum(w.level >= 3 for w in core))
-        targets.extend(sorted((w for w in core if w.level < 3),
-                              key=lambda w:(-w.level, front_wall_number(turn,w)!=3))[:missing])
+    targets=[];station=turn.team_our.station()
+    if turn.day_index>=config.base_level_two_day and station and station.level<2:targets.append(station)
+    if turn.day_index>=config.first_core_wall_day:
+        core=[w for w in front_walls(turn) if front_wall_number(turn,w) in (2,3)]
+        needed=2 if turn.day_index>=config.both_core_walls_day else 1
+        missing=max(0,needed-sum(w.level>=3 for w in core))
+        targets.extend(sorted((w for w in core if w.level<3),key=lambda w:(-w.level,front_wall_number(turn,w)!=3))[:missing])
+    if turn.day_index>=config.both_core_walls_day:
+        for w in turn.team_our.roles:
+            number=front_wall_number(turn,w) if w.role_type=='wall' else None
+            goal=3 if number in (1,2,3,4) else 2
+            if w.role_type=='wall' and w.alive and (number or side_wall_a(turn,w)) and w.level<goal and w not in targets:
+                targets.append(w)
     return targets
+
+
+def scheduled_targets(turn: Turn, config: StrategyConfig) -> list[Unit]:
+    """Procurement lookahead; use/repair deadlines remain based on current day."""
+    from dataclasses import replace
+    if turn.is_day and turn.rounds_until_night>config.procurement_lead_rounds:
+        return due_defense_targets(turn,config)
+    # Plan the next day's requirements before the long night/shop round trip.
+    future=replace(turn,round_no=turn.day_index*130+1)
+    return due_defense_targets(future,config)
 
 
 def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
@@ -89,13 +114,13 @@ def next_development_target(turn: Turn, config: StrategyConfig) -> Unit | None:
     if len(weapons) < config.max_weapon_count: return None
     prices = {i.name:i.price for i in turn.weapon_shop}
     basic = next((w for w in sorted(weapons,key=lambda w:(w.level,w.role_type!='rocket',w.unit_id))
-                  if w.level < 3 and (prices.get(upgrade_item(w),0)>0 or not prices)),None)
+                  if w.level < (2 if turn.day_index<=config.ore_hold_days else 3) and (prices.get(upgrade_item(w),0)>0 or not prices)),None)
     if basic is not None: return basic
     station = turn.team_our.station()
-    if station is not None and station.level < 2: return station
-    wall = next((w for w in front_walls(turn) if w.level < wall_level_goal(turn,w)),None)
+    if station is not None and station.level < 2 and turn.day_index>config.ore_hold_days: return station
+    wall = next((w for w in front_walls(turn)+[w for w in existing_walls(turn) if side_wall_a(turn,w)] if w.level < wall_level_goal(turn,w)),None)
     if wall: return wall
-    return station if station is not None and station.level < 3 else None
+    return station if station is not None and station.level < 3 and turn.day_index>config.ore_hold_days else None
 
 
 def defense_budget(
@@ -254,28 +279,40 @@ class EconomyManager:
     mines: dict[int, Pos] = field(default_factory=dict)
     selling: set[int] = field(default_factory=set)
     activity: dict[int, str] = field(default_factory=dict)
+    evidence: dict[int, dict] = field(default_factory=dict)
+    previous_robots: dict = field(default_factory=dict)
+    returning_roles: set[int] = field(default_factory=set)
+    reserve_stone: dict[int, int] = field(default_factory=dict)
 
     def plan(self, turn: Turn, worker: Unit, state: WorldState, config: StrategyConfig, budget: DefenseBudget) -> EconomyPlan:
         if worker.pos is None:
             return EconomyPlan()
-        travel = TravelBudget.for_role(turn,worker,config)
-        threats=own_threats(turn) if not turn.is_day else ()
-        if threats and any(r.pos and worker.pos.distance_to(r.pos)<=(r.attack_range or config.robot_attack_range_fallback)+2 for r in threats):
+        travel = TravelBudget.for_role(turn,worker,config,must_return=worker.unit_id in self.returning_roles)
+        grid,danger=safe_grid(turn,config,self.previous_robots)
+        travel.grid=grid
+        if travel.daytime:travel.home=distance_field(grid,travel.goals)
+        threats=tuple(r for r in turn.robots if r.health>0) if not turn.is_day else ()
+        self.evidence[worker.unit_id]={'danger_cells':len(danger),'return_required':travel.daytime,'day_three_release':turn.day_index==3}
+        if worker.pos in danger:
             self.activity[worker.unit_id]='retreat_from_robot'
-            layout=build_defense_layout(turn)
-            return EconomyPlan(move=MoveIntent(worker.unit_id,layout.rear_corridor,125))
-        grid = travel.grid
+            return EconomyPlan(move=escape_intent(turn,worker,config,danger))
+        if not turn.is_day and state.night_role_pauses.get(worker.unit_id,0)>turn.round_no:
+            self.activity[worker.unit_id]='bounded_night_failure_pause'
+            return EconomyPlan()
         vendor_goals = tuple(p for v in turn.zone_positions("vendor") for p in interaction_cells(grid,v))
         if not vendor_goals:
             self.activity[worker.unit_id]="no_vendor_route"
             return EconomyPlan()
         home=turn.team_our.station()
         prices={item.name:item.price for item in turn.vendor_shop}
-        inventory=resource_inventory(worker);count=sum(inventory.values())
+        inventory=resource_inventory(worker)
+        inventory["stone"]=max(0,inventory["stone"]-self.reserve_stone.get(worker.unit_id,0))
+        inventory=+inventory;count=sum(inventory.values())
         value=sum(prices.get(n,0)*qty for n,qty in inventory.items())
         developed=bool(home and home.level>=2 and len(existing_weapons(turn))==3
                        and all(w.level>=2 for w in existing_weapons(turn)))
-        can_wait=developed and turn.team_our.gold>=config.treasure_gold_reserve and budget.margin>3
+        hoarding=turn.day_index<=config.ore_hold_days
+        can_wait=(hoarding or developed) and turn.team_our.gold>=config.treasure_gold_reserve and budget.margin>3
         rising=can_wait and any(state.market.will_rise(n,turn.day_index) for n in inventory)
         development=next_development_target(turn,config)
         item=upgrade_item(development)
@@ -303,12 +340,12 @@ class EconomyManager:
             if config.local_mining_only and turn.coordinate_frame.normalize(zone.pos).x>(turn.map_info.width-1)//2:
                 continue
             goals=interaction_cells(grid,zone.pos)
-            if threats:goals=tuple(p for p in goals if not any(r.pos and p.distance_to(r.pos)<=(r.attack_range or config.robot_attack_range_fallback)+2 for r in threats))
+            if threats:goals=tuple(p for p in goals if p not in danger)
             if not goals:continue
-            price=state.market.expected_price(zone.neutral_type,prices.get(zone.neutral_type,0),turn.day_index,can_wait=can_wait)
+            price=state.market.expected_price(zone.neutral_type,prices.get(zone.neutral_type,0),turn.day_index,can_wait=can_wait,horizon=max(1,config.ore_hold_days+1-turn.day_index) if hoarding else 1)
             if can_wait and state.market.will_rise(zone.neutral_type,turn.day_index):price*=config.market_forecast_weight
             capacity=max(0,worker.backpack_capacity-len(worker.backpack))
-            remaining=max(1,state.mine_remaining.get(zone.pos,10))
+            remaining=max(0,state.mine_remaining.get(zone.pos,10))
             batch=min(config.mining_batch_size,remaining,capacity)
             sale_actions=len(set(inventory)|{zone.neutral_type})
             base_cost=travel.cost(((goals,0),(vendor_goals,sale_actions)))
@@ -323,22 +360,54 @@ class EconomyManager:
         should_sell=can_sell and (worker.unit_id in self.selling or backpack_full(worker)
             or (not rising and (count>=config.mining_batch_size or worker.pos in vendor_goals or urgent_cash
                 or (depleted and count>=config.mining_minimum_batch) or best is None or sale_rate>=best[0])))
+        quantity_limit=None
+        if hoarding:
+            # Early cash is for actual minimum defense deficits, not ordinary
+            # level-three development. Stock already carried counts as funded.
+            owned=Counter(i for r in turn.controllable for i in r.backpack)
+            shop={i.name:i.price for i in turn.weapon_shop}
+            weapons=existing_weapons(turn)
+            missing=max(0,config.max_weapon_count-len(weapons))
+            basic=max(0,sum(w.level<2 for w in weapons)+missing-owned['WeaponUpgradeVoucher1'])
+            need=missing*config.weapon_build_cost+basic*shop.get('WeaponUpgradeVoucher1',100)
+            # Give normal first-day task income time to arrive; later shortfalls
+            # and a damaged base justify a bounded emergency conversion.
+            base=turn.team_our.station()
+            crisis=bool(base and base.health<500)
+            abnormal=(turn.day_index==2 or turn.rounds_until_night<=20 or crisis)
+            gap=max(0,need-turn.team_our.gold) if abnormal else 0
+            should_sell=can_sell and (gap>0 or crisis)
+            self.evidence[worker.unit_id].update(hold=True,defense_gap=gap,crisis=crisis,full=backpack_full(worker))
+            if should_sell:
+                quantity_limit=max(1,gap)  # Converted to units at actual price below.
+                self.activity[worker.unit_id]='emergency_defense_sale'
+            elif backpack_full(worker) and can_sell:
+                # Explicit user-approved capacity exception: one small working
+                # batch only, then return to hoarding instead of draining the bag.
+                should_sell=True
+                quantity_limit=-min(config.mining_minimum_batch,count)
+                self.activity[worker.unit_id]='capacity_minimum_sale'
+            elif backpack_full(worker):
+                self.activity[worker.unit_id]='hoard_full_no_safe_vendor'
+                return EconomyPlan()
+            else:self.selling.discard(worker.unit_id)
         if should_sell:
             self.selling.add(worker.unit_id);self.mines.pop(worker.unit_id,None)
-            self.activity[worker.unit_id]="sell_batch"
+            if not hoarding:self.activity[worker.unit_id]="sell_batch"
             if worker.pos in vendor_goals:
                 name=max(inventory,key=lambda n:(prices.get(n,0)*inventory[n],n))
-                return EconomyPlan(action=Action(worker.unit_id,ActionType.SELL,name=name,quantity=inventory[name]))
-            return EconomyPlan(move=MoveIntent(worker.unit_id,vendor_goals,35))
+                return EconomyPlan(action=Action(worker.unit_id,ActionType.SELL,name=name,quantity=min(inventory[name],(-quantity_limit if quantity_limit<0 else math.ceil(quantity_limit/max(prices.get(name,0),1)))) if quantity_limit is not None else inventory[name]))
+            return EconomyPlan(move=MoveIntent(worker.unit_id,vendor_goals,35,avoid_cells=danger))
         if best is None:
             self.mines.pop(worker.unit_id,None)
             self.activity[worker.unit_id]="no_complete_income_trip"
             return EconomyPlan()
         previous=next((item for item in ranked if item[1].pos==previous_pos),None)
         if previous is not None and previous[0]*1.2>=best[0]:best=previous
-        _,zone,goals=best;self.mines[worker.unit_id]=zone.pos
+        rate,zone,goals=best;self.mines[worker.unit_id]=zone.pos
+        self.evidence[worker.unit_id].update(rate=round(rate,3),target=[zone.pos.x,zone.pos.y],ore=zone.neutral_type,held=hoarding,route="safe_full_trip")
         if worker.pos.distance_to(zone.pos)<=1:
             self.activity[worker.unit_id]="collect_"+zone.neutral_type
             return EconomyPlan(action=Action(worker.unit_id,ActionType.COLLECT,targets=(zone.pos,)))
         self.activity[worker.unit_id]="travel_"+zone.neutral_type
-        return EconomyPlan(move=MoveIntent(worker.unit_id,goals,30))
+        return EconomyPlan(move=MoveIntent(worker.unit_id,goals,30,avoid_cells=danger))

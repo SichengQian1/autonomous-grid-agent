@@ -37,7 +37,7 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
     def diagram(number):
         row,col=divmod(number-1,4)
         return Pos(xmax+1-row,ymax+1-col)
-    weapon_norm = tuple(diagram(n) for n in (12,14,15)) + tuple(diagram(n) for n in (5,9,8,4,3,2,1))
+    weapon_norm = tuple(diagram(n) for n in (14,15,16)) + tuple(diagram(n) for n in (5,9,8,4,3,2,1))
     front_x=xmax+2
     first_layer=tuple(Pos(front_x,ymax+2-(n-1)) for n in (3,4,2,1,5,6))
     side_faces=tuple(Pos(x,y) for x in range(front_x-1,xmin-2,-1) for y in (ymin-2,ymax+2))
@@ -84,9 +84,8 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         for pos in corridor_norm
         if turn.map_info.contains(frame.denormalize(pos))
     )
-    shared=frame.denormalize(diagram(16))
-    single=frame.denormalize(Pos(xmin-2,ymax))
-    slots=(shared,single,shared)
+    shared=frame.denormalize(Pos(xmin-2,ymin))
+    slots=(shared,shared,shared)
     controller_sites = slots if all(turn.map_info.contains(p) and p not in weapon_sites[:3] and p not in wall_sites for p in slots) else _controller_sites(turn,weapon_sites,rear_corridor,wall_sites)
     return DefenseLayout(
         frame=frame,

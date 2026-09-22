@@ -17,6 +17,7 @@ from .defense import (
 from .economy import (
     DefenseBudget,
     EconomyManager,
+    backpack_full,
     defense_budget,
     wall_build_objective,
     weapon_build_objectives,
@@ -30,6 +31,8 @@ from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
 from .travel import TravelBudget
 from .maintenance import support_plan
+from .roles import GuardHandover, wall_goods
+from .route_safety import danger_cells, escape_intent
 from .tasking import AdvancedPlan, TaskManager, TreasureKnowledge, parse_structured_llm
 
 
@@ -52,6 +55,8 @@ class CompetitionPlanner:
     logistics: LogisticsManager = field(default_factory=LogisticsManager)
     engineer_id: int | None = None
     stone_batch_goal: int = 0
+    support_id: int | None = None
+    guard: GuardHandover = field(default_factory=GuardHandover)
     failure_count: int = 0
 
     def plan(
@@ -73,23 +78,44 @@ class CompetitionPlanner:
             self.logistics = LogisticsManager()
             self.engineer_id = None
             self.stone_batch_goal = 0
+            self.support_id = None
+            self.guard = GuardHandover()
             self.failure_count = 0
             self.news_prompt_source = self.interpreted_news = ""
+        self.treasure.observe(turn)
         if self.treasure_prompt_pending and turn.llm_response:
             parsed = parse_structured_llm(turn.llm_response)
             background = (parsed is not None and any(k in parsed for k in ("market", "treasure"))
                           and not any(k in parsed for k in ("answer", "command", "script", "procedure")))
             if background:
-                self.treasure.ingest_llm(turn.llm_response, {max(r-1,0)//ROUNDS_PER_DAY+1 for r,_ in state.folk_legend_history})
-                state.market.ingest_interpretation(parsed.get("market"),self.news_prompt_source,self.news_prompt_day)
-                self.interpreted_news = self.news_prompt_source
+                try:
+                    self.treasure.ingest_llm(turn.llm_response, {max(r-1,0)//ROUNDS_PER_DAY+1 for r,_ in state.folk_legend_history})
+                    state.market.ingest_interpretation(parsed.get("market"),self.news_prompt_source,self.news_prompt_day)
+                    self.interpreted_news = self.news_prompt_source
+                except Exception as error:
+                    self.treasure.reason='malformed_interpretation'
+                    self.treasure.analyzed_version=self.treasure.request_version
+                    self.treasure.emit('validation',reason=self.treasure.reason,error=type(error).__name__)
+                    self.interpreted_news = self.news_prompt_source
                 turn = replace(turn, llm_response="")
             self.treasure_prompt_pending = False
         elif self.treasure_prompt_pending and turn.round_no-self.treasure_prompt_round > config.task_response_wait:
             self.treasure_prompt_pending = False
+        workers=[r for r in turn.controllable if r.role_type==ROLE_WORKER and r.pos]
+        current=next((r for r in workers if r.unit_id==self.support_id),None)
+        stocked=max(workers,key=lambda r:(wall_goods(r),r.unit_id==self.engineer_id,-min((r.pos.distance_to(p) for p in build_defense_layout(turn).weapon_sites[:3]),default=0),-r.unit_id),default=None)
+        if current is None or (stocked and wall_goods(stocked)>0 and wall_goods(current)==0):
+            self.support_id=stocked.unit_id if stocked else None
+        self.logistics.support_id=self.support_id
+        self.economy.returning_roles={self.support_id} if turn.day_index>=config.night_support_day else set()
+        self.economy.returning_roles.update(r.unit_id for r in workers if any(i.startswith('WeaponUpgradeVoucher') for i in r.backpack))
+        missing_walls=max(0,len(build_defense_layout(turn).wall_sites)-len(existing_walls(turn)))
+        self.economy.reserve_stone={self.engineer_id:min(missing_walls,config.stone_batch_size)}
         self.economy.activity.clear()
+        self.economy.evidence.clear()
         self.opponent.update(turn, state.generation)
-        self.treasure.apply_result(turn.last_summon_treasure_result)
+        if self.treasure.pending_round and turn.round_no==self.treasure.pending_round+1:
+            self.treasure.apply_result(turn.last_summon_treasure_result)
         if deadline_reached():
             return Decision()
 
@@ -115,6 +141,7 @@ class CompetitionPlanner:
             decision = self._basic_defense(turn, threats)
         if deadline_reached():
             return self._basic_defense(turn, threats)
+        self.economy.previous_robots={r.robot_id:r.pos for r in turn.robots if r.pos}
         return decision
 
     def _day(
@@ -141,7 +168,24 @@ class CompetitionPlanner:
 
         advanced = AdvancedPlan()
         treasure_prompt = ""
-        recall_intents = self._individual_recall(turn, state, config)
+        guard_ready=False
+        expedition=bool(pioneer and self.treasure.departure_due(turn,pioneer,config))
+        long_trip=False
+        if expedition:
+            trip=TravelBudget.for_role(turn,pioneer,config)
+            goals=interaction_cells(trip.grid,self.treasure.position)
+            long_trip=not trip.fits(((goals,1),)) or (self.treasure.phase=='night' and self.treasure.opening_day==turn.day_index)
+        if expedition and (long_trip or self.guard.away):
+            assignments,handover,guard_ready=self.guard.coordinate(turn,existing_weapons(turn),config,True)
+            intents.extend(handover);used.update(i.actor_id for i in handover)
+            if guard_ready:
+                backup=turn.team_our.unit(self.guard.backup_id)
+                intents.append(MoveIntent(backup.unit_id,(backup.pos,),125,yield_cells=()))
+                used.add(backup.unit_id)
+        recall_intents = self._individual_recall(turn, state, config, self.support_id)
+        if guard_ready:
+            recall_intents=[i for i in recall_intents if i.actor_id!=pioneer.unit_id]
+        recall_intents=[i for i in recall_intents if i.actor_id not in used]
         # A return reservation must not suppress a one-turn adjacent delivery.
         for intent in tuple(recall_intents):
             role=turn.team_our.unit(intent.actor_id)
@@ -233,7 +277,7 @@ class CompetitionPlanner:
                     # would run into recall; spend carried stone immediately then.
                     work_left = self.stone_batch_goal-stones
                     enough_time = stone is not None and turn.rounds_until_night > mine_distance(stone)+work_left+self.stone_batch_goal+config.recall_safety_buffer+8
-                    if stone is not None and (stones == 0 or enough_time):
+                    if stone is not None and (stones == 0 or enough_time) and not backpack_full(worker):
                         if near_mine:
                             actions.append(Action(worker.unit_id, ActionType.COLLECT, targets=(stone.pos,)))
                         else:
@@ -265,11 +309,16 @@ class CompetitionPlanner:
                         )
                     used.add(worker.unit_id)
 
+            support=next((r for r in workers if r.unit_id==self.support_id and r.unit_id not in used),None)
+            if support:
+                stock=plan_repair_stock(turn,support,budget,config)
+                self._merge_advanced(stock,actions,intents,used)
             advanced = AdvancedPlan()
+            if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task:
+                treasure_plan=self.treasure.plan(turn,pioneer,config,budget.offensive,guard_ready=guard_ready)
+                self._merge_advanced(treasure_plan,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task and turn.day_index>=2:
-                purchase=plan_repair_stock(turn,pioneer,budget,config)
-                if purchase.action is None and purchase.move is None:
-                    purchase=self.logistics.plan(turn,pioneer,budget,config)
+                purchase=self.logistics.plan(turn,pioneer,budget,config)
                 self._merge_advanced(purchase,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used:
                 advanced = self._safe_task_plan(
@@ -303,43 +352,16 @@ class CompetitionPlanner:
                 if pioneer.unit_id not in used:
                     self._stage_idle_pioneer(turn,pioneer,config,intents,used)
 
-            treasure_prompt = ""
-            latest_news = state.official_news_history[-1] if state.official_news_history else (0, "")
-            if (
-                pioneer is not None
-                and not turn.phase_task
-                and not (advanced.action and advanced.action.action_type == ActionType.ACCEPT_TASK)
-                and ((not self.treasure.exhausted and self.treasure.confidence < config.treasure_confidence_threshold and state.folk_legend_history)
-                     or (latest_news[1] and latest_news[1] != self.interpreted_news))
-                and not self.treasure_prompt_pending
-                and not advanced.prompt
-                and self.treasure_prompt_day != turn.day_index
-                and llm_budget.can_call(task_active=False)
-            ):
-                legends = "\n".join(f"day {max(r-1,0)//ROUNDS_PER_DAY+1}: {text}" for r, text in state.folk_legend_history)[-8000:]
-                treasure_prompt = (
-                    "Interpret official market news separately from folk treasure clues. Return strict JSON only: "
-                    '{"market":[{"ore":"iron","start_day":1,"end_day":1,"closed":false,"rising":false,"price":null,"evidence":"exact source quote","confidence":0.0}],'
-                    '"treasure":{"x":0,"y":0,"day":1,"end_day":10,"phase":"any","items":[],"evidence_days":[],"confidence":0.0}}. '
-                    "Never infer a fixed day from earlier matches. Resolve relative dates against the source day. "
-                    "For narrative closures or price rises cite the actual supporting span; leave unsupported entries empty. "
-                    "Use confidence below 0.95 when any location, day, item, or quantity is uncertain. "
-                    f"Official source day {max(latest_news[0]-1,0)//ROUNDS_PER_DAY+1}: {latest_news[1][:6000]}\n"
-                    f"Legends: {legends}"
-                )
-                llm_budget.mark_requested(task_active=False, round_no=turn.round_no)
-                self.treasure_prompt_day = turn.day_index
-                self.treasure_prompt_pending = True
-                self.treasure_prompt_round = turn.round_no
-                self.news_prompt_source = latest_news[1]
-                self.news_prompt_day = max(latest_news[0]-1,0)//ROUNDS_PER_DAY+1
+            treasure_prompt=self._background_prompt(turn,state,llm_budget,advanced)
 
             shop_grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
             shop_goals=tuple(p for shop in turn.zone_positions('weaponShop') for p in interaction_cells(shop_grid,shop))
             shop_dist=distance_field(shop_grid,shop_goals) if shop_goals else {}
             for worker in sorted(workers,key=lambda w:shop_dist.get(w.pos,10000)):
                 if worker.unit_id not in used:
-                    logistics = self.logistics.plan(turn, worker, budget, config)
+                    logistics = plan_repair_stock(turn,worker,budget,config) if worker.unit_id==self.support_id else AdvancedPlan()
+                    if logistics.action is None and logistics.move is None:
+                        logistics = self.logistics.plan(turn, worker, budget, config)
                     if logistics.action is not None:
                         actions.append(logistics.action)
                         used.add(worker.unit_id)
@@ -374,7 +396,15 @@ class CompetitionPlanner:
         # Keep cooling launchers assigned: otherwise their operators leave to mine
         # and cannot fire when cooldown expires. Release after our wave is clear.
         combat_weapons = weapons
-        assignments = assign_controllers(turn, combat_weapons,config)
+        pioneer=next((r for r in turn.controllable if r.role_type==ROLE_PIONEER),None)
+        want_away=bool(pioneer and self.treasure.departure_due(turn,pioneer,config)
+                       and (self.treasure.window_valid(turn) or self.treasure.opening_day==turn.day_index+1))
+        blocked=[actor for actor,count in state.failed_move_counts.items() if count>=3]
+        if threats or want_away or self.guard.away or pioneer is None or pioneer.unit_id in blocked:
+            assignments,handover,guard_ready=self.guard.coordinate(turn,combat_weapons,config,want_away,blocked)
+        else:
+            assignments=assign_controllers(turn,combat_weapons,config);handover=[];guard_ready=False
+
         assignments = tuple(
             sorted(
                 assignments,
@@ -394,7 +424,7 @@ class CompetitionPlanner:
             )
         )
         shared_control=len({a.controller.unit_id for a in assignments})<len(assignments)
-        needed = len(assignments) if threats else 0
+        needed = len(assignments) if threats or guard_ready else 0
         active_assignments = assignments[:needed]
         attack_targets = threats
         if not attack_targets and config.allow_cross_map_fire and mode == StrategyMode.SCORE_RACE:
@@ -407,9 +437,11 @@ class CompetitionPlanner:
             active_assignments = assignments[: min(len(assignments), 1 if attack_targets else 0)]
 
         actions=[]
-        upgrading=set();upgraded_targets=set()
+        handover_ids={i.actor_id for i in handover}
+        upgrading=set(handover_ids);upgraded_targets=set()
         min_level=min((w.level for w in weapons),default=3)
         for role in turn.controllable:
+            if role.unit_id in handover_ids:continue
             adjacent=sorted((w for w in weapons if role.pos and w.pos and role.pos.distance_to(w.pos)<=1 and w.level==min_level and w.level<3 and w.unit_id not in upgraded_targets),key=lambda w:w.unit_id)
             for weapon in adjacent:
                 item=f'WeaponUpgradeVoucher{weapon.level}'
@@ -418,7 +450,7 @@ class CompetitionPlanner:
                     upgrading.add(role.unit_id);upgraded_targets.add(weapon.unit_id);break
         actions.extend(plan_attacks(turn,tuple(a for a in active_assignments if a.controller.unit_id not in upgrading),attack_targets))
         used_controllers = {action.controller_id for action in actions if action.controller_id is not None} | upgrading
-        intents: list[MoveIntent] = []
+        intents: list[MoveIntent] = list(handover)
         for assignment in active_assignments:
             if assignment.controller.unit_id in used_controllers:
                 continue
@@ -433,7 +465,7 @@ class CompetitionPlanner:
                     )
                 )
                 used_controllers.add(assignment.controller.unit_id)
-            elif attack_targets:
+            elif attack_targets or guard_ready:
                 # A controller stays assigned while a relevant threat exists even
                 # before that threat enters range.
                 used_controllers.add(assignment.controller.unit_id)
@@ -449,6 +481,7 @@ class CompetitionPlanner:
             if assignment.controller.unit_id in firing_controllers or assignment.controller.unit_id in upgrading:
                 continue
             role = assignment.controller
+            if role.role_type==ROLE_PIONEER:continue
             if role.pos is None or role.pos.distance_to(assignment.weapon.pos)>1:
                 continue
             if any(intent.actor_id == role.unit_id and role.pos not in intent.goals for intent in intents):
@@ -484,9 +517,11 @@ class CompetitionPlanner:
             and released
         ):
             # Reserve an active task before assigning a cleared-wave shopping trip.
-            pioneer = next((role for role in released if role.role_type == ROLE_PIONEER and not threats), None)
+            pioneer = next((role for role in released if role.role_type == ROLE_PIONEER and (not threats or guard_ready)), None)
             if pioneer is not None:
-                advanced = self._safe_task_plan(turn, state, llm_budget, config, pioneer)
+                treasure=self.treasure.plan(turn,pioneer,config,budget.offensive,guard_ready=guard_ready)
+                self._merge_advanced(treasure,actions,intents,used_controllers)
+                advanced = self._safe_task_plan(turn, state, llm_budget, config, pioneer) if pioneer.unit_id not in used_controllers and not threats else AdvancedPlan()
                 self._merge_advanced(advanced, actions, intents, used_controllers)
                 if turn.phase_task or advanced.prompt or advanced.execute_command:
                     used_controllers.add(pioneer.unit_id)
@@ -494,8 +529,10 @@ class CompetitionPlanner:
                     treasure = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure, actions, intents, used_controllers)
             for role in released:
-                if turn.day_index>=config.night_support_day and threats and role.unit_id not in used_controllers:
+                if turn.day_index>=config.night_support_day and threats and role.unit_id==self.support_id and role.unit_id not in used_controllers:
                     support=support_plan(turn,role,config,threats)
+                    self.economy.activity[role.unit_id]=support.reason
+                    self.economy.evidence[role.unit_id]={"wall_risk":support.evidence}
                     self._merge_advanced(support,actions,intents,used_controllers)
             for role in sorted(released,key=lambda r:r.role_type!=ROLE_PIONEER):
                 if role.unit_id in used_controllers:
@@ -513,12 +550,37 @@ class CompetitionPlanner:
             if pioneer is not None and pioneer.unit_id not in used_controllers:
                 self._stage_idle_pioneer(turn,pioneer,config,intents,used_controllers)
             for worker in released:
-                if (not threats or turn.day_index<config.night_support_day) and worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
+                if worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers, state, config, budget)
 
+        danger=danger_cells(turn,config,self.economy.previous_robots)
+        protected={a.controller.unit_id for a in active_assignments}|handover_ids|({self.support_id} if threats else set())
+        for worker in turn.controllable:
+            if worker.role_type!=ROLE_WORKER or worker.unit_id in protected:continue
+            if worker.pos in danger:
+                actions=[a for a in actions if a.actor_id!=worker.unit_id]
+                intents=[i for i in intents if i.actor_id!=worker.unit_id]
+                escape=escape_intent(turn,worker,config,danger)
+                if escape:intents.append(escape)
+                self.economy.activity[worker.unit_id]='night_work_exposure_retreat'
+            else:
+                intents=[replace(i,avoid_cells=i.avoid_cells|danger) if i.actor_id==worker.unit_id else i for i in intents]
         moves = schedule_moves(turn, intents)
         actions.extend(action for action in moves if action.actor_id not in {item.actor_id for item in actions})
-        return Decision(tuple(actions), advanced.prompt, advanced.execute_command)
+        return Decision(tuple(actions), advanced.prompt or self._background_prompt(turn,state,llm_budget,advanced), advanced.execute_command)
+
+    def _background_prompt(self,turn,state,llm_budget,advanced):
+        latest=state.official_news_history[-1] if state.official_news_history else (0,'')
+        if (turn.phase_task or advanced.prompt or advanced.execute_command
+            or (advanced.action and advanced.action.action_type==ActionType.ACCEPT_TASK)
+            or self.treasure_prompt_pending or not llm_budget.can_call(task_active=False)):
+            return ''
+        if not self.treasure.needs_analysis() and (not latest[1] or latest[1]==self.interpreted_news):return ''
+        prompt=self.treasure.prompt(latest[1],max(latest[0]-1,0)//ROUNDS_PER_DAY+1)
+        llm_budget.mark_requested(task_active=False,round_no=turn.round_no)
+        self.treasure_prompt_pending=True;self.treasure_prompt_round=turn.round_no
+        self.news_prompt_source=latest[1];self.news_prompt_day=max(latest[0]-1,0)//ROUNDS_PER_DAY+1
+        return prompt
 
     @staticmethod
     def _stage_idle_pioneer(turn, pioneer, config, intents, used):
@@ -554,6 +616,7 @@ class CompetitionPlanner:
         pioneer: Unit,
     ) -> AdvancedPlan:
         try:
+            if self.treasure_prompt_pending and not turn.phase_task:return AdvancedPlan()
             return self.tasks.plan(turn, state, llm_budget, config, pioneer)
         except Exception as error:
             LOGGER.warning("task planner degraded safely (%s)", type(error).__name__)
@@ -642,7 +705,7 @@ class CompetitionPlanner:
         return result
 
     @staticmethod
-    def _individual_recall(turn: Turn, state: WorldState, config: StrategyConfig) -> list[MoveIntent]:
+    def _individual_recall(turn: Turn, state: WorldState, config: StrategyConfig, support_id=None) -> list[MoveIntent]:
         state.recalled_roles = {actor: day for actor, day in state.recalled_roles.items() if day == turn.day_index}
         intents = CompetitionPlanner._controller_intents(turn, 120)
         grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
@@ -651,7 +714,7 @@ class CompetitionPlanner:
         if station is not None:
             home = tuple(dict.fromkeys(p for cell in station.footprint() for p in interaction_cells(grid,cell)))
             intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config).goals or home,110) for role in turn.controllable
-                           if role.unit_id not in assigned and role.pos is not None and (turn.day_index>=config.night_support_day or role.role_type!=ROLE_WORKER or any(i.startswith('WeaponUpgradeVoucher') for i in role.backpack)))
+                           if role.unit_id not in assigned and role.pos is not None and ((turn.day_index>=config.night_support_day and role.unit_id==support_id) or role.role_type!=ROLE_WORKER or any(i.startswith('WeaponUpgradeVoucher') for i in role.backpack)))
         result = []
         for intent in intents:
             role = turn.team_our.unit(intent.actor_id)

@@ -38,6 +38,19 @@ def assign_controllers(turn: Turn, weapons: tuple[Unit, ...], config=DEFAULT_CON
     if not ordered:
         return ()
     layout = build_defense_layout(turn)
+    # A single common legal cell serves all three rear launchers. Prefer the
+    # pioneer, but an already present worker covers an absent/blocked pioneer.
+    if config.shared_rocket_control and len(weapons)==3 and all(w.role_type==ROLE_ROCKET for w in weapons):
+        post=layout.controller_sites[0] if layout.controller_sites else None
+        if post and all(w.pos and w.pos.distance_to(post)==1 for w in weapons):
+            grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in available))
+            distances=distance_field(grid,(post,))
+            pioneer=next((r for r in available if r.role_type=='pioneer'),None)
+            present=next((r for r in available if r.pos==post),None)
+            reachable=[r for r in available if distances.get(r.pos,10000)<10000]
+            selected=present or (pioneer if pioneer in reachable else None) or min(reachable,key=lambda r:(distances[r.pos],r.unit_id),default=None)
+            if selected:
+                return tuple(ControllerAssignment(w,selected,post) for w in weapons)
     if config.shared_rocket_control and len(weapons)==3 and all(w.role_type==ROLE_ROCKET for w in weapons) and len(available)>=2:
         slots_by_weapon=dict(zip(layout.weapon_sites[:3],layout.controller_sites))
         if all(w.pos in slots_by_weapon for w in weapons) and len(set(slots_by_weapon.values()))==2:

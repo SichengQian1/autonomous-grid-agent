@@ -13,7 +13,7 @@ from tools.diagnostics.synthetic_replay import run_synthetic_match
 
 
 class FeedbackTests(unittest.TestCase):
-    def test_failed_night_economy_disables_unverified_behavior(self) -> None:
+    def test_failed_night_economy_pauses_only_failed_role(self) -> None:
         state = WorldState()
         turn = Turn.from_raw(synthetic_turn(round_no=100))
         state.ingest(turn)
@@ -24,7 +24,8 @@ class FeedbackTests(unittest.TestCase):
         raw = synthetic_turn(round_no=101)
         raw["lastRoundRoleActionResults"] = {"1": False}
         state.ingest(Turn.from_raw(raw))
-        self.assertTrue(state.night_economy_disabled)
+        self.assertFalse(state.night_economy_disabled)
+        self.assertEqual(state.night_role_pauses,{1:104})
 
     def test_new_match_clears_failed_sites_and_old_state(self) -> None:
         state = WorldState()

@@ -16,6 +16,9 @@ class PriceWindow:
     price: int | None = None
     closed: bool = False
     rising: bool = False
+    evidence: str = ""
+    source_day: int = 0
+    recovery: bool = False
 
 
 @dataclass(slots=True)
@@ -54,28 +57,34 @@ class MarketMemory:
             price_match = re.search(r"(?:价格|售价|卖价|收购价|price)\s*(?:调整为|提高到|涨至|降至|为|[:=]|to|is)?\s*(\d+)(?![\d.])", sentence, re.I)
             closed = bool(re.search(r"关闭|封闭|停采|暂停开采|禁止采集|\bclosed\b", sentence, re.I))
             rising = bool(re.search(r"涨价|上涨|上调|走高|\brise\b|\bincrease\b",sentence,re.I))
-            if re.search(r"不会|不再|取消|可能|或许|might|may",sentence,re.I):
+            recovery=bool(re.search(r"恢复|重新开放|reopen|restore|resume",sentence,re.I))
+            if recovery and not span and not duration:end=10
+            if re.search(r"不会|不再|取消|可能|或许|might|may",sentence,re.I) and not recovery:
                 continue
-            if not (1 <= start <= end <= 10) or (not price_match and not closed and not rising):
+            if not (1 <= start <= end <= 10) or (not price_match and not closed and not rising and not recovery):
                 continue
             price = int(price_match[1]) if price_match else None
             if price is not None and not 0 < price < 10000:
                 continue
             previous = next((w for w in self.windows if w.ore == ores[0] and w.start_day == start and w.end_day == end),None)
             window = PriceWindow(ores[0], start, end, price if price is not None else previous.price if previous else None,
-                                 closed or bool(previous and previous.closed),rising or bool(previous and previous.rising))
+                                 False if recovery else closed or bool(previous and previous.closed),False if recovery else rising or bool(previous and previous.rising),sentence[:500],day,recovery)
             self.windows = [w for w in self.windows if not (w.ore == window.ore and w.start_day == start and w.end_day == end)]
             self.windows.append(window)
         self.windows = [w for w in self.windows[-40:] if w.end_day >= day]
 
     def closed(self, ore: str, day: int) -> bool:
-        return any(w.ore == ore and w.closed and w.start_day <= day <= w.end_day for w in self.windows)
+        active=[w for w in self.windows if w.ore==ore and w.start_day<=day<=w.end_day]
+        return active[-1].closed if active else False
 
-    def expected_price(self, ore: str, current: int, day: int, *, can_wait: bool) -> int:
+    def expected_price(self, ore: str, current: int, day: int, *, can_wait: bool, horizon: int = 1) -> int:
         if ore not in RESOURCE_ZONE_TYPES or not can_wait:
             return current
-        return max([current] + [w.price for w in self.windows if w.ore == ore and w.price is not None
-                                and day < w.start_day <= day + 1])
+        future=[]
+        for target_day in range(day+1,min(10,day+max(1,horizon))+1):
+            active=[w for w in self.windows if w.ore==ore and w.start_day<=target_day<=w.end_day]
+            if active and active[-1].price is not None:future.append(active[-1].price)
+        return max([current]+future)
 
     def will_rise(self, ore: str, day: int) -> bool:
         return any(w.ore == ore and w.rising and day < w.start_day <= day+1 for w in self.windows)
@@ -103,7 +112,8 @@ class MarketMemory:
             price=entry.get("price")
             # Exact price forecasts need the literal number in the cited text.
             if type(price) is not int or not 0<price<10000 or str(price) not in quote: price=None
-            if not (closed or rising or price): continue
+            recovery=entry.get("recovery") is True and bool(re.search(r"恢复|重新开放|reopen|restore|resume",quote,re.I))
+            if not (closed or rising or price or recovery): continue
             self.windows=[w for w in self.windows if not(w.ore==ore and w.start_day==start and w.end_day==end)]
-            self.windows.append(PriceWindow(ore,start,end,price,closed,rising))
+            self.windows.append(PriceWindow(ore,start,end,price,False if recovery else closed,False if recovery else rising,quote,source_day,recovery))
         self.windows=self.windows[-40:]

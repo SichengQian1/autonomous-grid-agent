@@ -19,7 +19,7 @@ class EconomicOperationsTests(unittest.TestCase):
         raw=self.raw()
         raw['teamOur']['roles'][0]['pos']={'x':7,'y':9}
         raw['teamOur']['roles'][0]['backpack']=['StationUpgradeVoucher1']
-        raw['roundNo']=131
+        raw['roundNo']=261
         turn=Turn.from_raw(raw)
         plan=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
         self.assertIsNone(plan.action)
@@ -55,7 +55,7 @@ class EconomicOperationsTests(unittest.TestCase):
         raw=self.raw(); manager=EconomyManager(); state=WorldState(); sales=[]; collected=0; moves=0
         raw['teamOur']['goldNum']=0  # Test ordinary batching, not a nearly funded upgrade.
         for r in range(1,45):
-            raw['roundNo']=r; turn=Turn.from_raw(raw); state.ingest(turn)
+            raw['roundNo']=r+260; turn=Turn.from_raw(raw); state.ingest(turn)
             plan=manager.plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,12))
             if plan.action:
                 if plan.action.action_type.value=='collect':
@@ -126,18 +126,10 @@ class EconomicOperationsTests(unittest.TestCase):
         plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertEqual(plan.action.action_type.value,'use')
 
-    def test_treasure_requires_known_multiple_day_evidence_and_owned_items(self):
+    def test_treasure_requires_current_sources_and_owned_items(self):
+        from tests.test_v013_treasure import prepared
         import json
-        knowledge=TreasureKnowledge()
-        data={'treasure':{'x':3,'y':4,'day':2,'end_day':4,'phase':'day','items':['SyntheticKey'],
-                          'evidence_days':[1,2],'confidence':1.0}}
-        knowledge.ingest_llm(json.dumps(data),{1}); self.assertIsNone(knowledge.position)
-        knowledge.ingest_llm(json.dumps(data),{1,2})
-        raw=self.raw(); raw['roundNo']=131
-        raw['teamOur']['roles'][2]['pos']={'x':3,'y':5}
-        raw['weaponShopList']=[{'name':'SyntheticKey','price':10}]
-        turn=Turn.from_raw(raw); pioneer=turn.team_our.unit(3)
-        self.assertIsNone(knowledge.action(turn,pioneer,DEFAULT_CONFIG))
-        self.assertIsNone(knowledge.plan(turn,pioneer,DEFAULT_CONFIG,100).action)
-        raw['teamOur']['roles'][2]['backpack']=['SyntheticKey']; turn=Turn.from_raw(raw)
-        self.assertEqual(knowledge.action(turn,turn.team_our.unit(3),DEFAULT_CONFIG).action_type.value,'summonTreasure')
+        turn,knowledge,data=prepared()
+        knowledge.ingest_llm(json.dumps({'treasure':data}))
+        self.assertTrue(knowledge.complete)
+        self.assertFalse(knowledge.can_attempt(turn,turn.team_our.unit(2),DEFAULT_CONFIG))

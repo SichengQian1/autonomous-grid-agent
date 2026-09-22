@@ -5,11 +5,88 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.13 operating candidate (2026-09-23)
+
+- Normalized rockets occupy 14/15/16, with one pioneer at the common post behind
+  15. Four rear corridor cells remain open. Actual cooldown and the existing
+  projected-health/AoE targeting decide shots. Mixed/edge layouts retain fallback.
+- A persistent worker replacement approaches, the incumbent vacates, and the
+  replacement must be observed at the post before a night treasure departure.
+  Return uses the reverse handover; death/blockage also requests a replacement.
+  Physical handovers can cost shots and are explicitly logged.
+- Keep the existing opening construction and batch-stone sequence. Stable support
+  ownership prefers carried wall goods when reassignment is necessary. From night
+  three one worker supports walls; the main miner is not routinely recalled.
+  Route selection and actual movement share visible-robot exclusions; unsafe
+  positions retreat where possible. Night economic failure is scoped to the role,
+  with bounded retries and a same-night pause after three failures.
+- Sale ore is held through days one/two. Necessary basic-defense deficits can
+  trigger minimal cash conversion, using actual gold, vouchers and shop prices.
+  The user explicitly authorized a second exception: a full backpack can sell a
+  small production batch. Construction stone remains reserved. Day three returns
+  to normal price-aware selling. News windows include restoration/correction
+  evidence; no fixed third-day price is encoded.
+- Due by night five: base level two and one of front walls 2/3 level three. By
+  night six: front walls 1–4 level three, 5/6 and side A level two. Side A is the
+  adjacent rearward side cell from front wall 1, using the same normalized frame.
+  Day nine can develop the remaining planned level-two walls when affordable.
+  Prior-day late procurement sees the next stage. Support workers buy/carry/use
+  their own repair stock from day five; no assumed inventory transfer.
+- Treasure now lives in `solution/treasure.py`, still exported from tasking for
+  compatibility. Source IDs, segments, offsets and evidence quotations support
+  incremental material/location/window constraints and bounded source recall.
+  The shop model retains descriptions. Buy each individually established material
+  when affordable, even with other materials or location/time unknown. A complete
+  current-window candidate outranks ordinary shopping; future windows schedule
+  departure by route time. No two-source-day gate or confidence-only sacrifice.
+  Explicit corrections invalidate old execution; failed combinations are not
+  blindly repeated. Unknown mode remains unknown.
+- Self-evolution task solving/submission code before the former treasure class is
+  unchanged. Shared redaction regexes gained word boundaries to avoid quadratic
+  work on long credential-free text. No HTTP/protocol rewrite or dependencies.
+- New bounded `operation` events cover source/model traces, constraints, waits,
+  purchases, handovers, role/risk decisions and treasure settlement with concurrent
+  economic effects removed. Existing encrypted log keys/decoder remain compatible.
+  The decoder defaults to a summary; `--output` retains full JSONL export. Add
+  `--operations`, `--day`, `--role`, `--treasure-stage` for filtered diagnostics.
+- Preserve the pre-existing user change in `AGENTS.md`; it is not in this release.
+
+Verification (local Python 3.14.6; target 3.11.10 not installed locally):
+- `make test PYTHON=python`: 332 tests passed; compileall passed. The complete
+  suite includes both 1,300-turn synthetic replays with zero invalid/dropped/failed
+  actions and zero planner fallback failures. Existing task regressions passed.
+- Source and clean-archive HTTP checks on both sides passed, including malformed
+  JSON and 71-turn independently restricted construction maps: three weapons,
+  12/16 walls, one seated controller covering all three. Maximum measured HTTP
+  time across these checks was 98.5 ms. This is not an official engine replay.
+- Python 3.11 AST syntax checks passed for all 38 runtime modules. No new dependency.
+- The archive has exactly 39 files: entrypoint plus runtime modules; byte-for-byte
+  comparison with sources passed. Encrypted operation records passed default
+  summary, day/role/stage filtering and new-file JSONL export checks.
+- Confidentiality review excluded local/official material, raw logs and task
+  credentials. Synthetic fixture changes update superseded policy expectations;
+  TaskManager's solving/submission implementation prefix remains unchanged.
+- Artifact: `submissions/v0/submission-v0.13.tar.gz`
+- SHA-256: `4ed55b6b9ac4ff8aad2fa0a22acd7d6cec6c7b7f8707899262c194fd3a00b21b`
+- Base revision: `92283a8349cad19cb305214268405cd4f1d9f69a`; release on `codex/v0`.
+- Private verification outputs live under `local/analysis/v013/` (not published).
+
+Assumptions for the next platform sample:
+- Level-one base plus three level-two rockets surviving night two is an experiment.
+- One operator throughput, transition shot loss, night-worker exposure, late
+  procurement capacity and fifth/sixth-night deadlines need actual match evidence.
+- Quoted evidence and catalog binding reduce unsupported treasure guesses but do
+  not independently prove the model's natural-language interpretation. Memory,
+  context and log omission flags must be checked before judging a failed solve.
+- Compare task full-credit rate/time, survival, worker deaths, per-day ore cash,
+  upgrade arrival times, shot counts and treasure attempts/successes. Synthetic
+  checks are not evidence of improved score/win rate or stable treasure solving.
+
 ## Confirmed Direction
 
 - Target Python 3.11.10 with standard-library runtime code.
 - Optimize match win rate under a zero-exception safety constraint.
-- v0.9 primary weapon experiment: three rocket launchers with two shared operators.
+- v0.13 primary weapon experiment: three rocket launchers with one shared pioneer operator.
 - First comparison: two railguns and one rocket launcher.
 - Treat task score and income as primary differentiators when defensive readiness
   remains safe.

@@ -90,9 +90,9 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(front_wall_number(first,first.team_our.unit(20+number)),number)
             self.assertEqual(front_wall_number(other,other.team_our.unit(20+number)),number)
 
-    def test_wall_one_capped_at_two_and_riskiest_wall_serviced(self):
+    def test_wall_one_uses_repair_before_its_level_three_stage(self):
         from solution.maintenance import support_plan
-        raw=defense_raw(591)
+        raw=defense_raw(461)
         raw['teamOur']['roles'][0].update(pos={'x':7,'y':16},backpack=['WallUpgradeVoucher2','WallFixer'])
         for u in raw['teamOur']['roles']:
             if u['id']==21:u['health']=100
@@ -112,9 +112,10 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(p.action.name,'WallUpgradeVoucher2')
         self.assertEqual(p.action.targets[0],t.team_our.unit(23).pos)
 
-    def test_pioneer_stocks_two_without_spending_weapon_reserve(self):
+    def test_support_worker_stocks_two_without_spending_weapon_reserve(self):
         from solution.logistics import plan_repair_stock
         raw=defense_raw();raw['teamOur']['roles'][2]['level']=2
+        raw['teamOur']['roles'][1]['roleType']='worker'
         next(u for u in raw['teamOur']['roles'] if u['id']==23)['level']=3
         t=Turn.from_raw(raw)
         p=plan_repair_stock(t,t.team_our.unit(2),DefenseBudget(0,25,170,12),DEFAULT_CONFIG)

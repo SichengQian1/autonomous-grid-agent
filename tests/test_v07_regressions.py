@@ -23,11 +23,11 @@ class V07RegressionTests(unittest.TestCase):
         self.assertTrue(any(a.actor_id==2 for a in moves))
 
     def test_another_courier_does_not_block_owned_upgrade_delivery(self):
-        raw=developed();raw['roundNo']=150
+        raw=developed();raw['roundNo']=280
         raw['teamOur']['roles'][0]['backpack']=['StationUpgradeVoucher1']
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':4}
         turn=Turn.from_raw(raw)
-        manager=LogisticsManager(carrier_id=2,started=140,orders=[Delivery('WeaponUpgradeVoucher1',20,1)])
+        manager=LogisticsManager(carrier_id=2,started=270,orders=[Delivery('WeaponUpgradeVoucher1',20,1)])
         result=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
         self.assertIsNotNone(result.move)
         self.assertEqual(manager.carrier_id,2)
@@ -47,7 +47,7 @@ class V07RegressionTests(unittest.TestCase):
         self.assertTrue(command)
 
     def test_small_optional_repairs_do_not_consume_base_upgrade_fund(self):
-        raw=developed();raw['roundNo']=160;raw['teamOur']['goldNum']=80
+        raw=developed();raw['roundNo']=290;raw['teamOur']['goldNum']=80
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':5}
         next(u for u in raw['teamOur']['roles'] if u['roleType']=='rocket')['level']=2
         raw['teamOur']['roles'].append(role(60,'wall',8,10,health=600,level=1))
@@ -120,7 +120,7 @@ class V07OperatingTests(unittest.TestCase):
 
     def test_idle_pioneer_stages_near_shop_without_displacing_active_task(self):
         from solution.engine import AgentEngine
-        raw=developed();raw['roundNo']=150
+        raw=developed();raw['roundNo']=280
         for u in raw['teamOur']['roles']:
             if u['roleType'] in ('station','rocket','railgun'):u['level']=2
         raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':13,'y':5}}]

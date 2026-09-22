@@ -34,7 +34,7 @@ class ObservedFailures(unittest.TestCase):
         turn=Turn.from_raw(raw);layout=build_defense_layout(turn)
         self.assertEqual(DEFAULT_CONFIG.primary_weapon_loadout,('rocket',)*3)
         self.assertEqual(len(layout.wall_sites),16)
-        self.assertEqual(len(set(layout.controller_sites)),2)
+        self.assertEqual(len(set(layout.controller_sites)),1)
         self.assertEqual(DEFAULT_CONFIG.recall_safety_buffer+DEFAULT_CONFIG.recall_traffic_buffer,2)
 
 class ApiSopTests(unittest.TestCase):
@@ -218,7 +218,7 @@ class RocketOperationsTests(unittest.TestCase):
             fired=set()
             for _ in range(4):
                 turn=Turn.from_raw(raw);assignments=assign_controllers(turn,tuple(w for w in turn.team_our.roles if w.is_weapon))
-                self.assertEqual(len({a.controller.unit_id for a in assignments}),2)
+                self.assertEqual(len({a.controller.unit_id for a in assignments}),1)
                 # Seat assigned operators at the chosen posts in this firing-only test.
                 for a in assignments:next(u for u in raw['teamOur']['roles'] if u['id']==a.controller.unit_id)['pos']=a.control_pos.to_raw()
                 turn=Turn.from_raw(raw);assignments=assign_controllers(turn,tuple(w for w in turn.team_our.roles if w.is_weapon))
@@ -234,7 +234,7 @@ class RocketOperationsTests(unittest.TestCase):
             turn=Turn.from_raw(self.scene(side));layout=build_defense_layout(turn)
             cells=layout.frame.normalize_cells(turn.team_our.station().footprint())
             x=max(p.x for p in cells);y=max(p.y for p in cells)
-            expected=[Pos(x-1,y-2),Pos(x-2,y),Pos(x-2,y-1)]
+            expected=[Pos(x-2,y),Pos(x-2,y-1),Pos(x-2,y-2)]
             self.assertEqual([layout.frame.normalize(p) for p in layout.weapon_sites[:3]],expected)
             self.assertEqual(len(layout.wall_sites),16)
     def test_early_spare_worker_can_mine_while_two_operators_defend(self):

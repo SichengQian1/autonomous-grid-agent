@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from tools.diagnostics.task_report import summarize_tasks
+from tools.diagnostics.operation_report import summarize_operations
 from solution.telemetry import PREFIXES, decode_event  # noqa: E402
 
 
@@ -92,7 +93,7 @@ def summarize_events(events):
             "dayNightBoundaries":boundaries,"weaponActivity":dict(weapon_activity),
             "requestedCommerceQuantities":dict(commerce),"taskReasons":dict(task_reasons),
             "taskCommandCategoryTurns":dict(command_categories),"taskRejectReasonTurns":dict(rejection_reasons),
-            "economyActivityTurns":dict(economy_activity),"taskOutcomes":task_outcomes(events),"taskDetail":summarize_tasks(events)}
+            "economyActivityTurns":dict(economy_activity),"taskOutcomes":task_outcomes(events),"taskDetail":summarize_tasks(events),"operations":summarize_operations(events)}
 
 
 def task_outcomes(events):
@@ -134,16 +135,22 @@ def task_outcomes(events):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
-    parser.add_argument("--limit", type=int, default=2000)
+    parser.add_argument("--limit", type=int, default=10000)
     parser.add_argument("--max-bytes", type=int, default=16 * 1024 * 1024)
     parser.add_argument("--summary", action="store_true", help="print only a bounded identifier-free diagnostic summary")
+    parser.add_argument("--operations", action="store_true", help="operating/treasure summary; optional day/role/stage filters")
+    parser.add_argument("--day",type=int)
+    parser.add_argument("--role",type=int)
+    parser.add_argument("--treasure-stage",dest="stage")
     parser.add_argument("--tasks", action="store_true", help="task categories, timelines, failures and reuse")
     parser.add_argument("--trace", action="store_true", help="readable bounded task evidence; combine with --task-id")
     parser.add_argument("--task-id", help="bounded sanitized details for a task such as T002")
     parser.add_argument("--detail-limit", type=int, default=24)
     parser.add_argument('--output', type=Path, help='write decoded UTF-8 JSONL to a NEW file')
     args = parser.parse_args()
-    if args.output and (args.summary or args.tasks or args.task_id or args.trace):
+    operating=args.operations or args.day is not None or args.role is not None or args.stage is not None
+    if not args.output and not (args.tasks or args.trace or args.task_id or operating):args.summary=True
+    if args.output and (args.summary or args.tasks or args.task_id or args.trace or operating):
         parser.error('--output is only for decoded JSONL; omit summary/detail options')
     if args.output and args.output.exists():
         parser.error('--output already exists; choose a new filename')
@@ -161,14 +168,14 @@ def main() -> None:
                 event = decode_event(line)
             elif line.lstrip().startswith("{"):
                 event = json.loads(line)
-                if not isinstance(event,dict) or event.get("event") not in {"turn","checkpoint","task"}:
+                if not isinstance(event,dict) or event.get("event") not in {"turn","checkpoint","task","operation"}:
                     continue
             else:
                 continue
         except ValueError:
             failed += 1
             continue
-        if args.summary or args.tasks or args.task_id or args.trace:
+        if args.summary or args.tasks or args.task_id or args.trace or operating:
             events.append(event)
         else:
             print(json.dumps(event, ensure_ascii=False, sort_keys=True),file=output)
@@ -176,7 +183,9 @@ def main() -> None:
         if decoded >= limit:
             break
     if args.output: output.close()
-    if args.trace:
+    if operating:
+        print(json.dumps(summarize_operations(events,args.day,args.role,args.stage,min(max(args.detail_limit,1),256)),ensure_ascii=False))
+    elif args.trace:
         selected=[e for e in events if e.get('event')=='task' and (not args.task_id or e.get('task_id')==args.task_id)]
         for event in selected[:min(max(args.detail_limit,1),256)]:
             print(f"{event.get('task_id')} r{event.get('r')} {event.get('kind')} {event.get('status','')}")

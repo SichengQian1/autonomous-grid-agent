@@ -15,6 +15,7 @@ class MoveIntent:
     goals: tuple[Pos, ...]
     priority: int = 0
     yield_cells: tuple[Pos, ...] | None = None
+    avoid_cells: frozenset[Pos] = frozenset()
 
 
 def schedule_moves(
@@ -37,7 +38,7 @@ def schedule_moves(
     # task-locked and building roles have no movement intent and stay untouched.
     by_actor = {intent.actor_id: intent for intent in ordered}
     relaxed = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(by_actor))
-    routes = {intent.actor_id: shortest_path(relaxed, roles[intent.actor_id].pos, intent.goals)
+    routes = {intent.actor_id: shortest_path(relaxed, roles[intent.actor_id].pos, intent.goals, extra_blocked=intent.avoid_cells)
               for intent in ordered if intent.actor_id in roles}
     yield_actions: dict[int, Action] = {}
     for intent in ordered:
@@ -50,7 +51,7 @@ def schedule_moves(
             grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(blocker_id,))
             candidates = [p for p in grid.neighbours(blocker.pos)
                           if p not in current_positions and p not in reserved and p not in route
-                          and (held.yield_cells is None or p in held.yield_cells)]
+                          and p not in held.avoid_cells and (held.yield_cells is None or p in held.yield_cells)]
             if candidates and blocker_id not in yield_actions:
                 # Prefer the far side of a choke; keep the approach lane clear.
                 target = min(candidates, key=lambda p: (min(p.distance_to(g) for g in intent.goals), p))
@@ -74,7 +75,7 @@ def schedule_moves(
         # Treat every other role's current cell as occupied even if it may move. This
         # conservative rule prevents same-cell contention, swaps, and following into
         # a cell that fails to vacate.
-        extra_blocked = (current_positions - {role.pos}) | reserved
+        extra_blocked = (current_positions - {role.pos}) | reserved | set(intent.avoid_cells)
         path = shortest_path(grid, role.pos, intent.goals, extra_blocked=extra_blocked)
         if len(path) < 2:
             continue

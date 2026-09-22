@@ -21,7 +21,7 @@ class TravelBudget:
     goals: tuple[Pos,...] = ()
 
     @classmethod
-    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig):
+    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig, *, must_return=True):
         grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
         weapons=tuple(u for u in turn.team_our.roles if u.is_weapon and u.alive)
         assignment=next((a for a in assign_controllers(turn,weapons,config) if a.controller.unit_id==role.unit_id),None)
@@ -37,7 +37,7 @@ class TravelBudget:
                 post=turn.coordinate_frame.denormalize(Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+1))
                 if grid.passable(post):goals=(post,)
         return cls(grid,role.pos,distance_field(grid,goals),turn.rounds_until_night,
-                   config.recall_safety_buffer+config.recall_traffic_buffer,turn.is_day,tuple(goals))
+                   config.recall_safety_buffer+config.recall_traffic_buffer,turn.is_day and must_return,tuple(goals))
 
     def cost(self, stops=()):
         """Greedy actual paths through each work stop, then home, in turns."""
@@ -46,7 +46,7 @@ class TravelBudget:
             path=shortest_path(self.grid,pos,goals)
             if not path: return UNREACHABLE
             total+=len(path)-1+work; pos=path[-1]
-        return total+self.home.get(pos,UNREACHABLE)
+        return total+(self.home.get(pos,UNREACHABLE) if self.daytime else 0)
 
     def fits(self, stops=()):
         return not self.daytime or self.cost(stops)+self.margin < self.remaining

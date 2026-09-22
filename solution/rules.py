@@ -100,6 +100,9 @@ class StrategyConfig:
     recall_safety_buffer: int = 2
     recall_traffic_buffer: int = 0
     shared_rocket_control: bool = True
+    ore_hold_days: int = 2
+    final_wall_day: int = 9
+    procurement_lead_rounds: int = 35
     night_support_day: int = 3
     robot_attack_range_fallback: int = 3
     base_level_two_day: int = 5

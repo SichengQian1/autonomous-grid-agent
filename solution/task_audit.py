@@ -52,7 +52,7 @@ class Redactor:
         """Readable local evidence with credential discovery before truncation."""
         # Register labeled credentials before any separate snippet is emitted.
         patterns=[r'(?i)(?:bearer\s+)([A-Za-z0-9_./+=-]{4,})',
-                  r'''(?i)(?:[\w-]*(?:token|password|secret|credential|api[_-]?key|certificate)[\w-]*|authorization|cookie|session|proof|account|username|teamId|teamName)\s*["'`]?\s*[:=|]\s*["'`]?([^\s"'`,;}|]+)''']
+                  r'''(?i)(?<![\w-])(?:[\w-]*(?:token|password|secret|credential|api[_-]?key|certificate)[\w-]*|authorization|cookie|session|proof|account|username|teamId|teamName)\s*["'`]?\s*[:=|]\s*["'`]?([^\s"'`,;}|]+)''']
         def learn(v):
             if isinstance(v,dict):
                 for key,item in v.items():
@@ -70,7 +70,7 @@ class Redactor:
         text=value if isinstance(value,str) else json.dumps(value,ensure_ascii=False)
         text=self.scrub(text)
         text=re.sub(r'https?://[^\s"\x27<>`]+',lambda m:'<service:'+self.fingerprint(m[0])[:8]+'>',text)
-        text=re.sub(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '<account>',text)
+        text=re.sub(r'(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', '<account>',text)
         text=re.sub(r'(?<![\w])(?:[A-Za-z]:)?/(?:[\w.\-]+/?)+',lambda m:self.path(m[0]),text)
         text=re.sub(r'\b[0-9a-fA-F]{12,}\b','<opaque>',text)
         original=len(text.encode())
