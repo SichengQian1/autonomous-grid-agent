@@ -5,6 +5,91 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.16 incremental treasure convergence (2026-09-23)
+
+Scope: treasure interpretation, candidate lifecycle, bounded action policy and
+read-only diagnostics. Preserve the v0.15 defense, worker, procurement, combat
+and six-task paths; no new dependency, weapon composition or platform action.
+
+Evidence from five local v0.15 matches:
+- All five logged twenty shop names/prices and zero nonempty descriptions; all
+  received four source arrivals and five model replies. None issued an opening.
+- Three produced material candidates rejected by the old combined material
+  predicate, followed by dependent count errors. Two stayed in unknown mode.
+  This confirms a descriptionless-catalog stall, not that proposed mappings or
+  sites were correct. Real model paraphrases also require explicit effect/source
+  relationships rather than assuming the effect is always a literal quotation.
+- Three retained a living base at round 1300; two had no base in the final state.
+  Preserve the successful baseline without describing this sample as universal
+  ten-day survival. Raw sources and match-specific objects remain local only.
+
+Implemented:
+- Separate material object/effect/quantity citations; require current catalog
+  membership and source-snapshot membership. Explicit paraphrase/translation
+  relations remain model inference. Directly named, actual-description aligned
+  and inferred bindings have distinct evidence status; lexical checks are not
+  semantic proof. Empty descriptions alone no longer reject a grounded mapping.
+- Inferred mappings may prepare materials under existing defense, route, capacity
+  and guard constraints: default per-match exposure cap 90 gold, two opening
+  attempts, six inferred kinds and twelve units. Accepted purchase orders count
+  conservatively even if feedback is missing. These are tunable experiment limits,
+  not proven optimal funding. Materials can be bought before location/time.
+- Ingest exact coordinates against citations and bounds, or verify explicit axis
+  offset arithmetic. Approximate sites remain unusable for sacrifice. Unsupported
+  geographic deductions remain unknown. Check absolute/relative dates against
+  source day and justified phase; expired windows stop purchasing and opening.
+- Bind replies to request/source snapshots. New arrivals during latency no longer
+  discard valid old facts. Unknown/omitted updates preserve facts. Retractions and
+  none-mode require cited justification; corrections/conflicts block action until
+  addressed. Official-news-only replies cannot clear treasure state. New additive
+  clues permit material preparation but require revalidation before opening.
+  Changed catalogs invalidate old bindings until evaluated; sending a new request
+  alone does not restore purchasing permission.
+- Allow one recovery interpretation per failed snapshot within the existing daily
+  quota. After timeout require echoed request identity. Platform material rejection
+  blocks repurchasing/retrying that set; site/time rejection requires a changed
+  site/window. Opening from the sacrifice tile itself first moves adjacent.
+- Separate first material failure from skipped dependent count checks. Persist
+  last validation failure in turn diagnostics; add request/response counters and
+  IDs to trace chunks/candidates. Operation summaries report binding classifications,
+  granular failures and counts even when detailed events are deduplicated.
+- Runtime/specification inspection supports weapon-shop purchase only; the other
+  catalog is for selling ore. Vendor-only ritual availability is explicitly
+  unverified and does not acquire an invented purchase route.
+
+Verification:
+- 419 unittest cases and compileall passed using exact Python 3.11.10 on macOS
+  arm64; not a CentOS 7.6 or official-engine execution. No runtime dependency added.
+- 51 focused treasure cases include five separately arriving clue components,
+  no-description preparation/opening, translation and unrelated-effect rejection,
+  snapshot latency, explicit retraction, source-relative windows, expiry, bounded
+  inference, malformed recovery and platform rejection through AgentEngine.
+- Full suite includes both 1300-turn synthetic regressions with zero invalid,
+  dropped or failed actions and zero planner fallbacks. Each max decision <1s.
+- Source and clean archive passed both-side 71-turn HTTP opening replay, malformed
+  JSON and protocol smoke: three guns, 12/15 walls and one seated operator. Maximum
+  measured HTTP time was 134ms. Both also passed incremental treasure HTTP replay:
+  malformed response -> partial purchase -> later opening -> rejected-material
+  recovery; decoded logs retained concrete failure and request/response counts.
+- Existing task implementations, economy, maintenance, logistics, combat, movement,
+  protocol, validation and log-key files remain byte-identical to v0.15. Planner
+  edits are confined to background interpretation/response handling. New tests
+  are synthetic; raw logs, real clues, source identifiers and answers excluded.
+- Archive contains the entrypoint and all 41 runtime modules; file contents match
+  the source tree. No tests, official material, private analysis or downloaded logs.
+
+Release: `submissions/v0/submission-v0.16.tar.gz`; older release archives unchanged.
+SHA-256: `11f1bb971539047377d5849862893e0b6b8f13686828b1b0d2e4168edad68987`.
+Branch: `codex/v0`. Existing user edits to `AGENTS.md` remain excluded.
+
+Remaining calibration: real narrative-to-item interpretation, unsupported spatial
+or date formulations, adequacy/opportunity cost of the inference cap, model
+compliance with the new fields, actual opening success and defense impact. Local
+synthetic/HTTP checks do not demonstrate increased match score or treasure win
+rate. Next matches should compare source-to-purchase latency, expiry misses,
+request/response counts, exact rejection causes, opening attempts/results and
+attributable reward, plus all-six task results, worker deaths and ten-day survival.
+
 ## v0.15 funded upgrades, protected support and surplus item attacks (2026-09-23)
 
 Evidence from two local v0.14 matches:

@@ -65,11 +65,13 @@ class OperationAudit:
                     clean=self.redactor.readable(content,14000)
                     text=clean.pop('text');parts=[text[i:i+1600] for i in range(0,len(text),1600)] or ['']
                     for n,part in enumerate(parts):
-                        self.emit(turn,'model_trace',{'artifact':e['stage'],'part':n+1,'parts':len(parts),'text':part,**clean},flow='treasure')
+                        self.emit(turn,'model_trace',{'request_id':e.get('request_id'),'artifact':e['stage'],'part':n+1,'parts':len(parts),'text':part,**clean},flow='treasure')
                 self.emit(turn,e['stage'],{k:v for k,v in e.items() if k!='stage'},flow='treasure',critical=e['stage'] in ('result','opening','validation','memory_limit'))
             planner.treasure.events.clear()
             self.emit(turn,'waiting',{'reason':planner.treasure.reason,'mode':planner.treasure.mode,'version':planner.treasure.version,
-                     'analyzed':planner.treasure.analyzed_version,'complete':planner.treasure.complete},flow='treasure')
+                     'analyzed':planner.treasure.analyzed_version,'complete':planner.treasure.complete,
+                     'last_validation_failure':planner.treasure.last_validation_failure,
+                     'requests':planner.treasure.request_id,'responses':planner.treasure.responses},flow='treasure')
             self.emit(turn,'handover',{'phase':planner.guard.phase,'backup':planner.guard.backup_id,'confirmed':planner.guard.away})
             bomb=getattr(planner,'surplus_bomb',None)
             if bomb:

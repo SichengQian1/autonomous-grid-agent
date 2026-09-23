@@ -90,24 +90,28 @@ class CompetitionPlanner:
             self.support_health=None
             self.failure_count = 0
             self.news_prompt_source = self.interpreted_news = ""
-        self.treasure.observe(turn)
+        self.treasure.observe(turn,config)
         if self.treasure_prompt_pending and turn.llm_response:
             parsed = parse_structured_llm(turn.llm_response)
             background = (parsed is not None and any(k in parsed for k in ("market", "treasure"))
                           and not any(k in parsed for k in ("answer", "command", "script", "procedure")))
-            if background:
+            if background or not turn.phase_task:
                 try:
                     self.treasure.ingest_llm(turn.llm_response, {max(r-1,0)//ROUNDS_PER_DAY+1 for r,_ in state.folk_legend_history})
-                    state.market.ingest_interpretation(parsed.get("market"),self.news_prompt_source,self.news_prompt_day)
+                    if isinstance(parsed,dict):state.market.ingest_interpretation(parsed.get("market"),self.news_prompt_source,self.news_prompt_day)
                     self.interpreted_news = self.news_prompt_source
                 except Exception as error:
-                    self.treasure.reason='malformed_interpretation'
+                    self.treasure.fail('malformed_interpretation',error=type(error).__name__)
                     self.treasure.analyzed_version=self.treasure.request_version
                     self.treasure.emit('validation',reason=self.treasure.reason,error=type(error).__name__)
                     self.interpreted_news = self.news_prompt_source
                 turn = replace(turn, llm_response="")
             self.treasure_prompt_pending = False
         elif self.treasure_prompt_pending and turn.round_no-self.treasure_prompt_round > config.task_response_wait:
+            self.treasure.fail('model_response_timeout')
+            self.treasure.response_id_required=True
+            self.treasure.analyzed_version=self.treasure.request_version
+            self.treasure.retry_analysis()
             self.treasure_prompt_pending = False
         workers=[r for r in turn.controllable if r.role_type==ROLE_WORKER and r.pos]
         if workers and self.engineer_id not in {w.unit_id for w in workers}:
@@ -610,7 +614,8 @@ class CompetitionPlanner:
             or self.treasure_prompt_pending or not llm_budget.can_call(task_active=False)):
             return ''
         if not self.treasure.needs_analysis() and (not latest[1] or latest[1]==self.interpreted_news):return ''
-        prompt=self.treasure.prompt(latest[1],max(latest[0]-1,0)//ROUNDS_PER_DAY+1)
+        prompt=self.treasure.prompt(latest[1],max(latest[0]-1,0)//ROUNDS_PER_DAY+1,
+                                   purpose='treasure' if self.treasure.needs_analysis() else 'market_only')
         llm_budget.mark_requested(task_active=False,round_no=turn.round_no)
         self.treasure_prompt_pending=True;self.treasure_prompt_round=turn.round_no
         self.news_prompt_source=latest[1];self.news_prompt_day=max(latest[0]-1,0)//ROUNDS_PER_DAY+1

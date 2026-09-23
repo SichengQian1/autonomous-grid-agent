@@ -52,7 +52,7 @@ The active V1 code loop is implemented:
 - mirrored three-weapon and fixed-rear-opening layouts
 - defense-aware economy, construction, upgrade, and recall planning
 - controller assignment, partial release, and projected-damage targeting
-- task, bounded LLM/sandbox, news, and confidence-gated treasure state
+- task, bounded LLM/sandbox, news, and source-bound treasure state
 - opponent pressure modes with v0.2 summon/cross-map safety gates disabled
 - capped, integrity-checked `AGLOG2` telemetry and a local `.log`/`.log.xz` decoder
 - two-side ten-day synthetic regression and bounded log summarization
@@ -70,7 +70,9 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `market.py`: current/future price separation and bounded official-news windows
 - `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use
 - `combat.py`: controller release and target allocation
-- `tasking.py`: task recovery, LLM coordination, and evidence-gated treasure state
+- `tasking.py`: task recovery and LLM/sandbox coordination
+- `treasure.py`: source memory, request snapshots, incremental candidates and bounded expeditions
+- `treasure_claims.py`: material/source relationships, geometry and time checks; semantic inference stays explicit
 - `task_answers.py`: bounded answer field/type contracts and canonical rejection fingerprints
 - `task_context.py`: bounded per-task documents, workspace, attempted programs, and execution evidence
 - `task_programs.py`: bounded sandbox inspection, repair/check, and API aggregation procedures

@@ -1,5 +1,11 @@
 # Strategy
 
+The versioned sections below preserve historical decisions. Current v0.16 behavior
+is described in [the operating guide](operating-logic.md) and [HANDOFF](../HANDOFF.md).
+Treasure no longer requires multiple clue days or model-reported confidence: it
+uses source-bound constraints, an explicit bounded inference policy and confirmed
+nighttime guard handover.
+
 ## Global Objective
 
 Use a lexicographic decision hierarchy:

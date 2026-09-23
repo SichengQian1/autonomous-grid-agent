@@ -156,6 +156,8 @@ class StrategyConfig:
     task_stall_limit: int = 3
     task_expected_rounds: int = 6
     treasure_gold_reserve: int = 125
+    treasure_inferred_gold_limit: int = 90
+    treasure_inferred_attempt_limit: int = 2
     market_forecast_weight: float = 1.25
     local_mining_only: bool = True
     mining_home_radius: int = 10

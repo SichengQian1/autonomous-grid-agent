@@ -20,7 +20,7 @@ def prepared(text='Need 2 cold lights. Open at (10,12), day 3 night.',day=1):
     e=evidence(k,text)
     data={'mode':'treasure','materials':[{'item':'BlueLamp','quantity':2,'effect':'cold light','shop_quote':'lasting cold light','evidence':e,'quantity_evidence':e}],
           'kind_count':1,'total_quantity':2,'count_evidence':e,'materials_complete':True,
-          'location':{'x':10,'y':12,'evidence':e},'window':{'day':3,'end_day':3,'phase':'night','evidence':e},'unknown':[],'conflicts':[]}
+          'location':{'x':10,'y':12,'derivation':{'kind':'coordinate_literal'},'evidence':e},'window':{'day':3,'end_day':3,'phase':'night','evidence':e},'unknown':[],'conflicts':[]}
     return t,k,data
 
 class TreasureTests(unittest.TestCase):
@@ -50,6 +50,8 @@ class TreasureTests(unittest.TestCase):
         t,k,d=prepared();d['conflicts']=['two incompatible sites'];k.ingest_llm(json.dumps({'treasure':d}));self.assertFalse(k.complete)
         k.observe(replace(t,world_news=replace(t.world_news,folk_legends='Correction: use (11,12) instead of the former site.')))
         k.prompt();d['conflicts']=[];d['location']={'x':11,'y':12,'evidence':evidence(k,'Correction: use (11,12) instead of the former site.')}
+        d['location']['derivation']={'kind':'coordinate_literal'}
+        d['resolutions']=[{'reason':'Use the corrected site.','evidence':d['location']['evidence']}]
         k.ingest_llm(json.dumps({'treasure':d}));self.assertTrue(k.complete);self.assertEqual(k.position.x,11)
     def test_old_clue_can_be_recalled_after_more_than_8000_characters(self):
         t,k,d=prepared();old=next(iter(k.sources))
@@ -81,7 +83,7 @@ class TreasureIntegrationTests(unittest.TestCase):
         clue='The site is (10,12), open day 3 night.'
         k.observe(replace(t,world_news=replace(t.world_news,folk_legends=clue)))
         k.prompt();e=evidence(k,clue)
-        k.ingest_llm(json.dumps({'treasure':{'mode':'treasure','location':{'x':10,'y':12,'evidence':e},
+        k.ingest_llm(json.dumps({'treasure':{'mode':'treasure','location':{'x':10,'y':12,'derivation':{'kind':'coordinate_literal'},'evidence':e},
             'window':{'day':3,'end_day':3,'phase':'night','evidence':e},'materials_complete':True,'unknown':[]}}))
         self.assertEqual(k.materials,{'BlueLamp':2});self.assertTrue(k.complete)
     def test_price_change_does_not_repeat_semantic_analysis(self):
