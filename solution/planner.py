@@ -32,6 +32,7 @@ from .state import LlmBudget, WorldState
 from .travel import TravelBudget
 from .maintenance import support_plan
 from .wall_supply import wall_stock_plan
+from .surplus_bomb import SurplusBomb
 from .roles import GuardHandover, wall_goods
 from .route_safety import danger_cells, escape_intent
 from .tasking import AdvancedPlan, TaskManager, TreasureKnowledge, parse_structured_llm
@@ -60,6 +61,9 @@ class CompetitionPlanner:
     guard: GuardHandover = field(default_factory=GuardHandover)
     failure_count: int = 0
     wall_supply_status: dict = field(default_factory=dict)
+    surplus_bomb: SurplusBomb = field(default_factory=SurplusBomb)
+    support_health: tuple | None = None
+    support_damage: int = 0
 
     def plan(
         self,
@@ -82,6 +86,8 @@ class CompetitionPlanner:
             self.stone_batch_goal = 0
             self.support_id = None
             self.guard = GuardHandover()
+            self.surplus_bomb = SurplusBomb()
+            self.support_health=None
             self.failure_count = 0
             self.news_prompt_source = self.interpreted_news = ""
         self.treasure.observe(turn)
@@ -108,6 +114,9 @@ class CompetitionPlanner:
             sites=build_defense_layout(turn).weapon_sites[:3]
             self.engineer_id=min(workers,key=lambda w:(-wall_goods(w),min((w.pos.distance_to(p) for p in sites),default=0),w.unit_id)).unit_id
         self.support_id=self.engineer_id if workers else None
+        support=turn.team_our.unit(self.support_id)
+        self.support_damage=max(0,self.support_health[1]-support.health) if support and self.support_health and self.support_health[0]==support.unit_id else 0
+        self.support_health=(support.unit_id,support.health) if support else None
         self.logistics.support_id=self.support_id
         pioneer=next((r for r in turn.controllable if r.role_type==ROLE_PIONEER),None)
         self.logistics.weapon_buyer_id=(self.guard.backup_id if self.guard.away or pioneer is None else pioneer.unit_id)
@@ -115,6 +124,8 @@ class CompetitionPlanner:
         self.economy.returning_roles={self.support_id} if turn.day_index>=config.night_support_day else set()
         self.economy.reserve_stone={self.engineer_id:config.engineer_stone_reserve}
         self.wall_supply_status={}
+        self.surplus_bomb.observe(turn)
+        self.surplus_bomb.status={'reason':'daytime_or_no_free_miner'}
         self.economy.activity.clear()
         self.economy.evidence.clear()
         self.opponent.update(turn, state.generation)
@@ -542,7 +553,7 @@ class CompetitionPlanner:
                     self._merge_advanced(treasure, actions, intents, used_controllers)
             for role in released:
                 if turn.day_index>=config.night_support_day and role.unit_id==self.support_id and role.unit_id not in used_controllers:
-                    support=support_plan(turn,role,config,threats)
+                    support=support_plan(turn,role,config,threats,recent_damage=self.support_damage)
                     self.economy.activity[role.unit_id]=support.reason
                     self.economy.evidence[role.unit_id]={"wall_risk":support.evidence}
                     if threats or support.action or support.reason=="reachable_wall_rescue":
@@ -563,6 +574,15 @@ class CompetitionPlanner:
                     continue
             if pioneer is not None and pioneer.unit_id not in used_controllers:
                 self._stage_idle_pioneer(turn,pioneer,config,intents,used_controllers)
+            miner=next((r for r in released if r.unit_id==self.economy.main_miner_id and r.unit_id not in used_controllers),None)
+            if miner:
+                prices={i.name:i.price for i in turn.weapon_shop}
+                committed=sum(prices.get(a.name,0)*a.quantity for a in actions if a.action_type==ActionType.BUY)
+                repairing=any(a.actor_id==self.support_id and a.name=='WallFixer' and a.action_type==ActionType.USE for a in actions)
+                bomb=self.surplus_bomb.plan(turn,miner,turn.team_our.unit(self.support_id),budget,config,committed,repairing)
+                if bomb.action or bomb.move:
+                    self.economy.activity[miner.unit_id]=bomb.reason
+                    self._merge_advanced(bomb,actions,intents,used_controllers)
             for worker in released:
                 if worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers, state, config, budget)

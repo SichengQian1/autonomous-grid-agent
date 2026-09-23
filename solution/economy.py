@@ -72,7 +72,7 @@ def side_wall_a(turn: Turn, wall: Unit) -> bool:
 
 def wall_level_goal(turn: Turn, wall: Unit) -> int:
     number=front_wall_number(turn,wall)
-    if number in (1,2,3,4):return 3
+    if number in (1,2,3,4,5) or side_wall_a(turn,wall):return 3
     return 2
 
 
@@ -87,7 +87,7 @@ def due_defense_targets(turn: Turn, config: StrategyConfig) -> list[Unit]:
     if turn.day_index>=config.both_core_walls_day:
         for w in turn.team_our.roles:
             number=front_wall_number(turn,w) if w.role_type=='wall' else None
-            goal=3 if number in (1,2,3,4) else 2
+            goal=wall_level_goal(turn,w)
             if w.role_type=='wall' and w.alive and (number or side_wall_a(turn,w)) and w.level<goal and w not in targets:
                 targets.append(w)
     return targets

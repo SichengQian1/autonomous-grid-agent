@@ -171,12 +171,12 @@ class DeadlineTests(unittest.TestCase):
         for side in ('challenger','defender'):
             raw=world(651,side);t=Turn.from_raw(raw)
             sidewall=next(w for w in t.team_our.roles if w.role_type=='wall' and side_wall_a(t,w))
-            self.assertEqual(wall_level_goal(t,sidewall),2)
+            self.assertEqual(wall_level_goal(t,sidewall),3)
             t=replace(t,round_no=1041)
-            self.assertEqual(wall_level_goal(t,sidewall),2)
+            self.assertEqual(wall_level_goal(t,sidewall),3)
             for w in t.team_our.roles:
-                if front_wall_number(t,w) in (1,2,3,4):self.assertEqual(wall_level_goal(t,w),3)
-                if front_wall_number(t,w) in (5,6):self.assertEqual(wall_level_goal(t,w),2)
+                if front_wall_number(t,w) in (1,2,3,4,5):self.assertEqual(wall_level_goal(t,w),3)
+                if front_wall_number(t,w) ==6:self.assertEqual(wall_level_goal(t,w),2)
     def test_future_deadline_is_visible_during_previous_day(self):
         from solution.economy import scheduled_targets
         t=Turn.from_raw(world(430))

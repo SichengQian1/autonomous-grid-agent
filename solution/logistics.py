@@ -148,6 +148,13 @@ class LogisticsManager:
                    and o[1].unit_id not in due_ids and o[0] in role.backpack
                    and o[1].health > estimated_max_health(o[1])*config.wall_heal_fraction)]
         options = sorted((o for o in options if distance(o[1]) < 10000), key=value, reverse=True)
+        # A carried voucher is not evidence that the whole battery is funded.
+        # Re-evaluate missing stock after sale income, before deferred delivery.
+        if turn.is_day and turn.day_index>=config.advanced_rocket_day:
+            top_up=weapon_top_up(turn,role,budget,config,options)
+            if top_up.action or top_up.move:
+                self.orders=[];self.carrier_id=None;self.stage='weapon_stock_top_up'
+                return top_up
         self.orders = [order for order in self.orders if any(
             name == order.item and target.unit_id == order.target_id and target.level == order.level
             for name,target,_ in options)]
@@ -247,6 +254,31 @@ class LogisticsManager:
             return LogisticsPlan(move=MoveIntent(role.unit_id,shop_goals,85))
         self.orders, self.carrier_id, self.stage = [], None, "unfunded"
         return LogisticsPlan()
+
+
+def weapon_top_up(turn,role,budget,config,options):
+    if any(not u.is_weapon and critically_damaged(u) for _,u,_ in options):return LogisticsPlan()
+    weapons=[u for u in turn.team_our.roles if u.is_weapon and u.alive]
+    level=min((u.level for u in weapons),default=3)
+    if len(weapons)<config.max_weapon_count or level>=3:return LogisticsPlan()
+    eligible=[u for name,u,_ in options if u.is_weapon and u.level==level]
+    if not eligible:return LogisticsPlan()
+    item=f'WeaponUpgradeVoucher{level}'
+    owned=sum(r.backpack.count(item) for r in turn.controllable)
+    need=max(0,len(eligible)-owned)
+    prices={i.name:i.price for i in turn.weapon_shop}
+    price=prices.get(item,0)
+    cash=max(0,turn.team_our.gold-budget.mandatory-budget.emergency)
+    qty=min(need,role.backpack_capacity-len(role.backpack),cash//price) if price>0 else 0
+    if qty<=0:return LogisticsPlan()
+    trip=TravelBudget.for_role(turn,role,config)
+    goals=tuple(p for s in turn.zone_positions('weaponShop') for p in interaction_cells(trip.grid,s))
+    upgrades=sum(i.startswith('WeaponUpgradeVoucher') for i in role.backpack)+qty
+    if not goals or not trip.fits(((goals,1),(trip.goals,upgrades))):return LogisticsPlan()
+    evidence=(('tier',level),('missing',need),('quantity',qty),('gold',turn.team_our.gold))
+    if role.pos in goals:
+        return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name=item,quantity=qty),reason='weapon_stock_top_up',evidence=evidence)
+    return LogisticsPlan(move=MoveIntent(role.unit_id,goals,85),reason='weapon_stock_top_up_trip',evidence=evidence)
 
 
 def _maintenance_options(turn: Turn, config: StrategyConfig = DEFAULT_CONFIG) -> list[tuple[str, Unit, int]]:

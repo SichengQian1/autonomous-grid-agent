@@ -5,6 +5,86 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.15 funded upgrades, protected support and surplus item attacks (2026-09-23)
+
+Evidence from two local v0.14 matches:
+- Both completed all six tasks with full credit. One retained a live level-three
+  base through round 1300 (1696 points); the other first omitted the base at round
+  1170 and ended with 376 gold. This establishes one observed ten-day survival,
+  not a stable survival rate.
+- On day three, one purchased weapon voucher repeatedly selected deferred
+  delivery even after ore-sale money arrived. Both matches entered the third
+  night with only one level-three gun.
+- In the second match, the engineer began retreating behind an intact front wall
+  at round 860 with six repair items and unchanged health. Repeated rescue/retreat
+  decisions continued until front wall three disappeared at round 867. The cause
+  was support's range-only exposure check and global retreat for a remote doomed
+  wall, not the ordinary miner's final nighttime avoidance filter.
+
+Implemented:
+- Recompute missing current-tier weapon stock after income, subtract all carried
+  vouchers and buy what funds/capacity/return time permit. A held voucher no longer
+  stops top-ups. Preserve all level two before level three, operator ownership,
+  deferred use near nighttime recall and urgent base maintenance.
+- Front walls 1--5 and side A now target level three; front 6 stays level two.
+  A complete level-one array needs seven first-tier and six second-tier vouchers.
+  Prepare both tiers from day three, subtract existing upgrades and stock, and
+  preserve rebuilding plus the engineer's five-stone reserve. Funded day-three
+  wall shopping may occur early after reserving the missing gun-upgrade money.
+  Previous-night deadline lead now includes the enlarged remaining action count.
+- Support can hold behind an intact wall screen rather than retreat from attack
+  range alone. Rescue routes exclude unscreened danger cells. Actual worker damage,
+  intrusion, missing barriers or an unserviceable imminent nearby collapse still
+  trigger retreat. These are estimates of exposure, not engine target predictions.
+  Retain nighttime low-health upgrade first, then material-damage repair; merely
+  waiting for sufficient damage is distinct from lacking applicable supplies.
+- Repair baseline remains six from day five. From day six, remaining wall vouchers
+  precede surplus repair stock up to fifteen, subject to cash and capacity. Buying
+  fifteen must not starve missing wall upgrades or due base/basic-gun funds.
+- Optional Bomb buying starts night six, using only a free main miner. Require
+  three level-three guns, noncritical level-two-or-higher base, the actual completed
+  wall array and fifteen engineer-held repair items after same-turn planned use.
+  Reserve committed spending and emergency funds; require a safe shop route and
+  time to buy/use. At most one accepted buy and use per night; failed/unknown
+  results are logged without repeated purchases that night.
+- Rank global 3x3 targets by expected opponent medium kills, then medium count and
+  damage. Default requires at least two expected medium kills; unknown ownership
+  does not qualify. No travel to the enemy half or diversion of an active gunner
+  or engineer. A purchased bomb may be used after normal repairs reduce stock,
+  provided the six-item baseline and other readiness conditions remain satisfied.
+  Action success is not evidence of a particular kill-score gain.
+- `surplusBomb` / `bombResult` and bounded operation events record gates, target
+  estimates and action feedback. Read-only operation summaries include Bomb
+  purchases/uses and waiting reasons. Existing encrypted decoding is unchanged.
+
+Protected modules: all task implementations, treasure and log codec remain
+byte-identical to the v0.14 commit. Synthetic task and protocol tests remain part
+of full regression; this does not prove unchanged future platform performance.
+
+Validation:
+- 385 unittest cases and compileall passed, including two 1300-turn synthetic
+  regressions with zero invalid/dropped/failed actions or planner fallbacks.
+- New synthetic cases cover delayed-income top-ups through actual third-night
+  use on both sides, screening/real exposure/observed damage, expanded wall
+  supply/deadlines, surplus repair ordering and Bomb gates/ownership/feedback.
+- Source and clean archive each passed both-side HTTP opening checks, malformed
+  JSON and protocol smoke checks: three guns, 12/15 walls, one seated controller;
+  maximum measured HTTP latency was 87 ms in these runs.
+- Local interpreter: Python 3.14.6. All 40 runtime modules parsed with Python 3.11
+  syntax rules. Exact target Python 3.11.10/CentOS execution remains unverified.
+- Archive file list/content checked: entrypoint plus 40 runtime modules only;
+  no tests, private evidence, official material or downloaded logs included.
+  These tests do not prove new survival, score or Bomb effectiveness in matches.
+
+Release: `submissions/v0/submission-v0.15.tar.gz` (prior releases unchanged).
+SHA-256: `cd0a78afd05a217b40343c5bef89fe7175815178780689760a476e360d044756`.
+Implementation branch: `codex/v0`. Existing user edits to `AGENTS.md` are excluded
+from this release commit; local evidence remains under ignored analysis storage.
+Next real-match checks: third-night gun levels and purchase timing; engineer
+position/HP and repairs around front-wall damage; completion of the six level-three
+walls; repair stock/unused gold; Bomb attempts, feedback and attributable kills;
+all-six task completion, worker deaths and ten-day survival across both sides.
+
 ## v0.14 operating fixes (2026-09-23)
 
 Observed in two local v0.13 matches:

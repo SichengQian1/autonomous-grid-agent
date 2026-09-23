@@ -71,6 +71,10 @@ class OperationAudit:
             self.emit(turn,'waiting',{'reason':planner.treasure.reason,'mode':planner.treasure.mode,'version':planner.treasure.version,
                      'analyzed':planner.treasure.analyzed_version,'complete':planner.treasure.complete},flow='treasure')
             self.emit(turn,'handover',{'phase':planner.guard.phase,'backup':planner.guard.backup_id,'confirmed':planner.guard.away})
+            bomb=getattr(planner,'surplus_bomb',None)
+            if bomb:
+                self.emit(turn,'bomb',bomb.status)
+                if bomb.result:self.emit(turn,'bomb_result',bomb.result)
             for role in turn.controllable:
                 duty='pioneer' if role.role_type=='pioneer' else 'support' if role.unit_id==planner.support_id else 'miner'
                 if role.unit_id==planner.engineer_id and turn.is_day:duty='engineer'

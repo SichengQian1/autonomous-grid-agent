@@ -67,10 +67,10 @@ class WallSupplyTests(unittest.TestCase):
   for u in raw['teamOur']['roles']:
    if u['roleType']=='wall':u.update(level=1,health=1000)
   t=Turn.from_raw(raw);need=wall_needs(t,t.team_our.unit(1),DEFAULT_CONFIG)
-  self.assertEqual(need['WallUpgradeVoucher1'],7);self.assertEqual(need['WallUpgradeVoucher2'],4)
+  self.assertEqual(need['WallUpgradeVoucher1'],7);self.assertEqual(need['WallUpgradeVoucher2'],6)
   unit(raw,1)['backpack']=['WallUpgradeVoucher1']*3+['WallUpgradeVoucher2']
   t=Turn.from_raw(raw);need=wall_needs(t,t.team_our.unit(1),DEFAULT_CONFIG)
-  self.assertEqual(need['WallUpgradeVoucher1'],4);self.assertEqual(need['WallUpgradeVoucher2'],3)
+  self.assertEqual(need['WallUpgradeVoucher1'],4);self.assertEqual(need['WallUpgradeVoucher2'],5)
  def test_destroyed_wall_reopens_both_upgrade_requirements(self):
   from solution.wall_supply import wall_needs,wall_target
   raw=self.scene()
@@ -186,7 +186,7 @@ class WallLifecycleTests(unittest.TestCase):
     if w.role_type=='wall':self.assertGreaterEqual(w.level,wall_target(t,w),(side,front_wall_number(t,w),uses,purchases))
    self.assertGreaterEqual(worker['backpack'].count('WallFixer'),6)
    self.assertEqual(sum(q for _,n,q in purchases if n=='WallUpgradeVoucher1'),7)
-   self.assertEqual(sum(q for _,n,q in purchases if n=='WallUpgradeVoucher2'),4)
+   self.assertEqual(sum(q for _,n,q in purchases if n=='WallUpgradeVoucher2'),6)
 
 
 class DiagnosticTests(unittest.TestCase):

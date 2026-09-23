@@ -110,6 +110,12 @@ class StrategyConfig:
     both_core_walls_day: int = 6
     repair_stock_day: int = 5
     pioneer_repair_stock: int = 6
+    surplus_repair_day: int = 6
+    surplus_repair_stock: int = 15
+    bomb_start_day: int = 6
+    bomb_damage: int = 100
+    bomb_minimum_medium_kills: int = 2
+    allow_surplus_bomb: bool = True
     engineer_stone_reserve: int = 5
     wall_stock_early: int = 2
     wall_repair_min_damage: float = 0.30
@@ -119,7 +125,7 @@ class StrategyConfig:
     second_day_front_upgrades: int = 3
     protect_development_fund: bool = True
     advanced_rocket_day: int = 3
-    advanced_wall_day: int = 4
+    advanced_wall_day: int = 3
     emergency_gold_reserve: int = 25
     cautious_defense_margin: int = 7
     critical_defense_margin: int = 3

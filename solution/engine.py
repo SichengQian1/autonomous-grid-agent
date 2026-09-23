@@ -68,6 +68,8 @@ class AgentEngine:
                 execute_command=decision.execute_command,
             )
             self.state.record_decision(turn, accepted)
+            for action in accepted.actions:
+                self.planner.surplus_bomb.issued(turn,action)
             try:
                 if self.telemetry.generation != self.state.generation:
                     self.operations = OperationAudit()
@@ -91,6 +93,8 @@ class AgentEngine:
                         "operationLogDropped": self.operations.dropped,
                         "supportWorker": self.planner.support_id,
                         "wallSupply": self.planner.wall_supply_status,
+                        "surplusBomb": self.planner.surplus_bomb.status,
+                        "bombResult": self.planner.surplus_bomb.result,
                         "stoneReserve": self.planner.economy.reserve_stone,
                         "gunHandover": self.planner.guard.phase,
                         "treasureStage": self.planner.treasure.reason,
