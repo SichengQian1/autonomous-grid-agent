@@ -101,6 +101,8 @@ class AgentEngine:
                         "treasureValidation": self.planner.treasure.last_validation_failure,
                         "treasureRequest": self.planner.treasure.request_id,
                         "treasureResponses": self.planner.treasure.responses,
+                        "treasureAttempts": self.planner.treasure.attempt_count,
+                        "treasureMaterialSpent": self.planner.treasure.material_spent,
                         "taskLogDropped": self.planner.tasks.audit.dropped,
                         "taskLogBytes": self.planner.tasks.audit.total_used,
                         "taskPhase": str(getattr(self.planner.tasks, "phase", "unknown")),

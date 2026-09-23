@@ -41,7 +41,11 @@ class EconomicOperationsTests(unittest.TestCase):
         MarketMemory().ingest_interpretation([dict(ore={},evidence='synthetic news')],'synthetic news',1)
         for bad in ({},[],None):
             self.assertEqual(procedure_command({'kind':bad}), '')
-            TreasureKnowledge().ingest_llm(json.dumps({'treasure':dict(x=1,y=2,day=3,confidence=1,items=['key'],phase=bad)}))
+            from tests.test_treasure import prepared
+            turn, knowledge, data = prepared()
+            data['window']['phase'] = bad
+            knowledge.ingest_llm(json.dumps(data))
+            self.assertFalse(knowledge.complete)
 
     def raw(self):
         raw=campus()
@@ -127,10 +131,10 @@ class EconomicOperationsTests(unittest.TestCase):
         plan=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertEqual(plan.action.action_type.value,'use')
 
-    def test_treasure_requires_current_sources_and_owned_items(self):
-        from tests.test_v013_treasure import prepared
+    def test_treasure_requires_owned_items(self):
+        from tests.test_treasure import prepared
         import json
         turn,knowledge,data=prepared()
-        knowledge.ingest_llm(json.dumps({'treasure':data}))
+        knowledge.ingest_llm(json.dumps(data))
         self.assertTrue(knowledge.complete)
         self.assertFalse(knowledge.can_attempt(turn,turn.team_our.unit(2),DEFAULT_CONFIG))

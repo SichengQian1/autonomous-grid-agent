@@ -5,6 +5,108 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.17 model-led treasure execution (2026-09-23)
+
+Decision: replace v0.16 treasure semantic/lexical validation with platform-model
+interpretation and structural execution guards. This refactor and the deletion
+of the old claim module/tests were explicitly requested. No change to defense,
+worker economy, wall supply, combat, task solving or the HTTP/protocol contract.
+
+Evidence and limits:
+- The user-provided retrospective reports full task completion but stalled
+  treasure processing with object/quantity rejections. No new raw v0.16 trace was
+  supplied in this turn; do not treat those counts as independently reconstructed.
+- A local synthetic reproduction against the v0.16 claim code confirms that a
+  Chinese quantity before a comma and its object/effect after the comma are
+  rejected. It is a validator design limitation, not proof that the model's
+  proposed offering or coordinates were semantically correct.
+- Public task-item properties were checked against the user-specified reference.
+  The implementation uses short neutral property summaries only for exact names
+  currently on the shelf and only when runtime descriptions are empty. No recipe,
+  answer, location, date or fixed material price is embedded.
+
+Implemented:
+- Store raw folklore by first-observed source day, deduplicate persistent
+  broadcasts, retain keys for all observed days and append same-day additions.
+  Per-day limit 6000 characters; at most ten days / 60000 text characters. Log
+  truncation/omissions. Every treasure prompt includes all retained days, current
+  day, runtime map bounds, current catalog, previous accepted values and feedback.
+  Old source segmentation, lookup and correction-word heuristics are removed.
+- The model owns item/effect/quantity interpretation, spatial inference, relative
+  dates, conflicts and sufficiency. Prompt explains coordinate axes and day/night
+  lengths; map size is runtime data and relative dates use each clue's source day.
+  Runtime descriptions override public property hints. Prompt catalog has a
+  128-item / 1000-description-character budget with explicit omission metadata.
+- Flat JSON contract with matching integer request_id, mode, materials, location,
+  window. Missing/null fields retain values; a material list replaces the old
+  list, [] clears it, none mode clears all. Unknown keeps information and permits
+  known-material preparation; departure/opening waits for model mode treasure.
+  Structural completeness is exactly nonempty materials plus location and window.
+- Validate only current catalog membership, integer quantities 1--40 (not bool),
+  integer in-bounds coordinates and ordered day 1--10 windows with valid phase.
+  Drop invalid material entries individually; duplicate entries retain the first
+  and report an error. Invalid location/window clears that field. Shelf removal
+  clears stored materials and requests interpretation. No substring, quantity
+  clause, geometry derivation, date regex, evidence count or confidence gate.
+- Match replies to requests while allowing newer source arrivals during latency.
+  One structural-error/timeout retry per snapshot within the unchanged daily quota.
+  Market-only output cannot mutate treasure; background requests cannot interrupt
+  active tasks or overlap task acceptance. Flat replies use the existing pipeline.
+- Default material procurement cap is 300 gold cumulatively per match, at actual
+  prices. Accepted buy orders conservatively count even when feedback is missing
+  or the purchase subsequently fails. Preserve defense reserves, capacity, shop
+  adjacency, actual travel/return budgets and confirmed nighttime guard handover.
+  Prepare known materials early, depart near the window, stop after expiry.
+- At most two accepted opening actions total. Result 2 blacklists the attempted
+  location/window; result 3 blacklists the attempted material set. Record the
+  actually issued candidate, even if a model update has since changed it. Inject
+  failed conditions into the next model prompt. The second attempt ends treasure
+  retries/procurement; results 1/4 exhaust it immediately. Never repeat unchanged
+  failed conditions. Structural checks do not establish semantic correctness.
+- Keep validation/candidate/waiting/purchase/opening/result events and durable last
+  failures. Add attempt count and cumulative procurement exposure to turn records
+  and read-only summaries. New candidates identify semantics as llm_inferred;
+  old evidence-binding summaries remain decodable. Redaction and encryption stay.
+- Delete treasure_claims.py and the two superseded treasure test files. Replace
+  them with synthetic contract, memory, execution, handover and diagnostic cases
+  in tests/test_treasure.py; migrate only treasure fixtures in two adjacent tests.
+
+Validation:
+- Exact Python 3.11.10: 406 tests plus compileall passed, including 38 replacement
+  treasure cases. The retired tests asserted the removed lexical policy; remaining
+  task, protocol and operating coverage is retained. Tested on macOS arm64, not
+  the target CentOS environment.
+- Focused tests cover raw daily memory/truncation, ten full days through the public
+  prompt path, current-catalog hints, minimal schema, partial/null/clear updates,
+  request latency/identity/timeout, actual engine buy -> travel -> open -> changed
+  offering retry, two-attempt/cumulative-spend limits, guard arrival and log safety.
+- Explicit make replay passed for both 1300-turn sides with zero invalid, dropped,
+  failed actions or planner fallbacks; maximum measured decisions 85ms / 43ms.
+- Source and clean archive each passed both-side HTTP opening and make smoke,
+  including malformed JSON: three guns, 12/15 walls, one seated controller; max
+  HTTP latency 101ms. Separate source/archive treasure HTTP runs passed malformed
+  recovery, partial purchase, incremental opening and platform rejection; decoding
+  recovered the precise failure, three replies, one attempt and 30 gold exposure.
+- Archive contents match the source: entrypoint plus 40 runtime modules only.
+  Deleted claim code, tests, private analysis, original logs and official material
+  are absent. Historical archive checksums remain unchanged.
+- Twenty protected runtime files are byte-identical to v0.16, including task
+  implementations, economy, wall supply, maintenance, logistics, combat, guard,
+  movement, protocol, validation and log-key files. All model replies in local
+  treasure tests are synthetic; no official LLM, task sandbox or match was run.
+
+Release: `submissions/v0/submission-v0.17.tar.gz` (older archives unchanged).
+SHA-256: `db114868063b11ef3ec5ceefb3126248d25dcdf5d9f932293839234298979ac5`.
+Branch: `codex/v0`. Existing user edits to `AGENTS.md` remain excluded. Private
+retrospective, reproduction outputs, local traces and official documents excluded.
+
+Next platform checks: whether the real model follows the smaller flat contract;
+material preparation and opening latency; attempt/result codes and rejected-set
+recovery; spent gold and expired windows; whether retained long context is actually
+used correctly. Compare six-task results, pioneer return/guard coverage, worker
+survival and ten-day base survival. Do not infer improved score or semantic success
+from synthetic replies, local HTTP runs or the reduced count of lexical rejections.
+
 ## v0.16 incremental treasure convergence (2026-09-23)
 
 Scope: treasure interpretation, candidate lifecycle, bounded action policy and

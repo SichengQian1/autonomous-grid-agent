@@ -190,19 +190,19 @@ class TaskStateTests(unittest.TestCase):
 
 
 class TreasureTests(unittest.TestCase):
-    def test_low_confidence_never_sacrifices_items(self) -> None:
+    def test_incomplete_candidate_never_sacrifices_items(self) -> None:
         turn = Turn.from_raw(synthetic_turn(round_no=131))
         pioneer = turn.team_our.unit(2)
-        knowledge = TreasureKnowledge(Pos(3, 3), 1, ("Token",), 0.5)
+        knowledge = TreasureKnowledge(position=Pos(3, 3), opening_day=1)
         self.assertIsNone(knowledge.action(turn, pioneer, DEFAULT_CONFIG))
 
     def test_result_code_updates_state(self) -> None:
-        knowledge = TreasureKnowledge(confidence=1.0)
+        knowledge = TreasureKnowledge()
         knowledge.apply_result(4)
         self.assertTrue(knowledge.exhausted)
-        knowledge = TreasureKnowledge(confidence=1.0)
+        knowledge = TreasureKnowledge()
         knowledge.apply_result(3)
-        self.assertEqual(knowledge.confidence, 0.0)
+        self.assertFalse(knowledge.materials)
 
 
 class ActivePlannerTests(unittest.TestCase):

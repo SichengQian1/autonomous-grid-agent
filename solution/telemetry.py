@@ -181,7 +181,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.16",
+        "agentVersion": "v0.17",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,

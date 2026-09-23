@@ -89,7 +89,7 @@ def parse_port(arguments: list[str]) -> int:
 
 
 def serve(port: int) -> None:
-    LOGGER.info("agent v0.16 listening on port %d; detailed records use AGLOG3", port)
+    LOGGER.info("agent v0.17 listening on port %d; detailed records use AGLOG3", port)
     with AgentServer(("0.0.0.0", port), RequestHandler) as server:
         server.serve_forever()
 

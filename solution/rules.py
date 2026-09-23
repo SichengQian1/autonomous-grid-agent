@@ -134,7 +134,6 @@ class StrategyConfig:
     initial_wall_target: int = 10
     task_minimum_timeout: int = 4
     task_return_buffer: int = 4
-    treasure_confidence_threshold: float = 0.95
     allow_unverified_night_economy: bool = True
     night_economy_failure_limit: int = 1
     allow_cross_map_fire: bool = False
@@ -156,8 +155,7 @@ class StrategyConfig:
     task_stall_limit: int = 3
     task_expected_rounds: int = 6
     treasure_gold_reserve: int = 125
-    treasure_inferred_gold_limit: int = 90
-    treasure_inferred_attempt_limit: int = 2
+    treasure_material_gold_cap: int = 300
     market_forecast_weight: float = 1.25
     local_mining_only: bool = True
     mining_home_radius: int = 10

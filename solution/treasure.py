@@ -1,21 +1,34 @@
-"""Match-local source memory and evidence-bound treasure preparation/expedition.
-
-The model interprets narrative effects. The program verifies source membership,
-shop binding, multiplicity, geometry, time and action feedback independently.
-"""
+"""LLM-owned folklore interpretation with bounded, structurally valid execution."""
 from collections import Counter
 from dataclasses import dataclass, field
 import hashlib
 import json
-import re
+
 from .actions import Action, ActionType
 from .geometry import Pos
-from .grid import distance_field, interaction_cells, shortest_path
+from .grid import interaction_cells, shortest_path
 from .movement import MoveIntent
 from .route_safety import safe_grid, escape_intent
 from .travel import TravelBudget
-from .rules import DEFAULT_CONFIG
-from .treasure_claims import cited, material_claim, location_claim, window_claim
+from .rules import DEFAULT_CONFIG, DAY_ROUNDS, NIGHT_ROUNDS, ROUNDS_PER_DAY
+
+
+DAY_TEXT_LIMIT = 6000
+MATCH_DAYS = 10
+ATTEMPT_LIMIT = 2
+# Neutral summaries of public item properties, not a map's offering recipe.
+# Used only when an exact current catalog name lacks a runtime description.
+TASK_ITEM_HINTS = {
+    'AcientTablet': '石质刻文物件；古老符号；接触有振动声。',
+    'StarSand': '冷的银色颗粒材料；弱光环境可发亮。',
+    'FlameBreath': '瓶装暖色气态材料；活动后释放光与热。',
+    'FrostPotion': '蓝色浓稠药液；容器有霜；强烈降温感。',
+    'ThornAmulet': '植物编制的带刺环形饰品；有植物气息。',
+    'IronWhistle': '锈蚀金属吹奏物；内有可碰响的金属部件。',
+}
+MARKET_SCHEMA = ('market:[{ore:"iron|copper|stone",start_day:integer,end_day:integer,'
+                 'price:number|null,closed:boolean,rising:boolean,recovery:boolean,'
+                 'evidence:"exact official quote",confidence:number}]')
 
 
 def fingerprint(value):
@@ -26,402 +39,333 @@ def fingerprint(value):
 class TreasureKnowledge:
     position: Pos | None = None
     opening_day: int | None = None
-    items: tuple[str,...] = ()
-    confidence: float = 0.0  # Compatibility only; never used as execution evidence.
-    exhausted: bool = False
-    attempted: set = field(default_factory=set)
+    end_day: int = MATCH_DAYS
     phase: str = 'any'
-    end_day: int = 10
-    evidence_days: tuple = ()
-    sources: dict = field(default_factory=dict)
-    seen: set = field(default_factory=set)
+    materials: dict = field(default_factory=dict)
+    mode: str = 'unknown'
+    exhausted: bool = False
+    reason: str = 'no_rumor'
+    folk_legends: dict = field(default_factory=dict)
+    folklore_limits: dict = field(default_factory=dict)
+    seen: dict = field(default_factory=dict)
     memory_bytes: int = 0
     omitted: int = 0
-    version: int = 0
-    analyzed_version: int = -1
     catalog: dict = field(default_factory=dict)
     catalog_hash: str = ''
-    request_version: int = -1
-    request_sources: set = field(default_factory=set)
-    recall: list = field(default_factory=list)
-    constraints: dict = field(default_factory=dict)
-    materials: dict = field(default_factory=dict)
-    complete: bool = False
-    mode: str = 'unknown'
-    reason: str = 'no_rumor'
-    events: list = field(default_factory=list)
-    pending_attempt: tuple | None = None
-    pending_round: int = 0
+    map_bounds: tuple = (0, 0)
+    current_day: int = 1
     current_round: int = 0
-    candidate_version: int = 0
-    rejected: set = field(default_factory=set)
-    last_request_signature: str = ''
+    version: int = 0
+    analyzed_version: int = -1
+    request_version: int = -1
     request_id: int = 0
-    responses: int = 0
     request_purpose: str = 'treasure'
-    response_id_required: bool = False
-    request_catalog_hash: str = ''
-    accepted_catalog_hash: str = ''
-    accepted_sources: set = field(default_factory=set)
-    correction_version: int = 0
-    correction_resolved_version: int = 0
-    validated_version: int = -1
+    request_signature: str = ''
+    responses: int = 0
     retry_version: int = -1
     retry_count: int = 0
     retry_pending: bool = False
-    map_bounds: tuple = (0,0)
-    vendor_names: set = field(default_factory=set)
-    material_claims: dict = field(default_factory=dict)
-    last_validation_failure: dict = field(default_factory=dict)
-    validation_failures: list = field(default_factory=list)
-    inferred_spent: int = 0
-    inferred_attempts: int = 0
-    inferred_gold_limit: int = 90
-    inferred_attempt_limit: int = 2
+    candidate_version: int = 0
+    pending_attempt: tuple | None = None
+    pending_round: int = 0
+    attempted: set = field(default_factory=set)
+    rejected: set = field(default_factory=set)
     rejected_material_sets: set = field(default_factory=set)
     rejected_sites: set = field(default_factory=set)
+    attempt_count: int = 0
+    material_spent: int = 0
+    platform_feedback: list = field(default_factory=list)
+    validation_failures: list = field(default_factory=list)
+    last_validation_failure: dict = field(default_factory=dict)
+    events: list = field(default_factory=list)
+
+    @property
+    def items(self):
+        return tuple(name for name, count in sorted(self.materials.items()) for _ in range(count))
+
+    @property
+    def complete(self):
+        return bool(self.materials) and self.position is not None and self.opening_day is not None
+
+    def result(self):
+        return {'materials': [{'item': name, 'quantity': count} for name, count in self.materials.items()],
+                'location': self.position.to_raw() if self.position else None,
+                'window': {'day': self.opening_day, 'end_day': self.end_day, 'phase': self.phase}
+                          if self.opening_day is not None else None}
 
     def emit(self, stage, **data):
-        if len(self.events)<40:self.events.append({'stage':stage,**data})
+        if len(self.events) < 40:
+            self.events.append({'stage': stage, **data})
+
+    def fail(self, reason, **detail):
+        self.reason = reason
+        self.last_validation_failure = {'reason': reason, 'request_id': self.request_id,
+                                        'round': self.current_round, **detail}
+        self.emit('validation', **self.last_validation_failure)
 
     def observe(self, turn, config=DEFAULT_CONFIG):
-        self.current_round=turn.round_no
-        self.map_bounds=(turn.map_info.width,turn.map_info.height)
-        self.vendor_names={i.name for i in turn.vendor_shop}
-        self.inferred_gold_limit=config.treasure_inferred_gold_limit
-        self.inferred_attempt_limit=config.treasure_inferred_attempt_limit
-        catalog={i.name:{'description':i.description[:6000].strip(),'price':i.price,'original_length':len(i.description)} for i in turn.weapon_shop[:128]}
-        digest=fingerprint(json.dumps({name:item['description'] for name,item in catalog.items()},sort_keys=True,ensure_ascii=False))
-        self.catalog=catalog
-        if digest!=self.catalog_hash:
-            self.catalog_hash=digest;self.version+=1
-            self.emit('catalog',items=len(catalog),described=sum(bool(i['description']) for i in catalog.values()))
-        text=turn.world_news.folk_legends
-        if not text:return
-        h=fingerprint(text)
-        if h in self.seen:return
-        if len(self.seen)>=256:
-            self.omitted+=len(text.encode());self.emit('memory_limit',omitted_bytes=self.omitted);return
-        self.seen.add(h);self.version+=1
-        if self.sources and re.search(r'correction|instead|retract|cancel|not .{0,40}but|更正|纠正|改为|取消|有误|并非|不是|不再',text,re.I):
-            self.correction_version=self.version
-        # Keep old evidence, not just the suffix of an ever-growing prompt.
-        # Segment boundaries overlap so short requirements survive splits.
-        added=[]
-        for offset in range(0,len(text),1100):
-            segment=text[max(0,offset-100):offset+1100]
-            n=len(segment.encode());sid='S'+fingerprint(segment)
-            if sid in self.sources:continue
-            if self.memory_bytes+n>196608:
-                self.omitted+=n;continue
-            self.sources[sid]={'id':sid,'day':turn.day_index,'version':self.version,'offset':max(0,offset-100),'text':segment,'fingerprint':fingerprint(segment)}
-            self.memory_bytes+=n;added.append(sid)
-        self.emit('source',day=turn.day_index,input_length=len(text),segments=added,
-                  memory_bytes=self.memory_bytes,omitted_bytes=self.omitted,excerpt=text)
-        # New clues may correct old ones. Re-evaluate before buying/sacrificing.
-        self.reason='new_evidence_pending'
+        self.current_round = turn.round_no
+        self.current_day = turn.day_index
+        self.map_bounds = (turn.map_info.width, turn.map_info.height)
+        self.catalog = {i.name: {'description': i.description.strip(), 'price': i.price} for i in turn.weapon_shop}
+        digest = fingerprint(json.dumps({n: i['description'] for n, i in self.catalog.items()}, sort_keys=True))
+        if digest != self.catalog_hash:
+            self.catalog_hash = digest
+            self.version += 1
+            removed = sorted(set(self.materials) - self.catalog.keys())
+            if removed:
+                self.materials.clear()
+                self.fail('catalog_item_removed', items=removed)
+            self.emit('catalog', items=len(self.catalog), described=sum(bool(i['description']) for i in self.catalog.values()))
+        day = self.current_day
+        if not 1 <= day <= MATCH_DAYS:
+            return
+        self.folk_legends.setdefault(day, '')
+        limits = self.folklore_limits.setdefault(day, {'input_chars': 0, 'kept_chars': 0, 'omitted_chars': 0, 'truncated': False})
+        text = turn.world_news.folk_legends
+        if not text:
+            return
+        digest = fingerprint(text)
+        # A broadcast persisting into another day keeps its original source day.
+        if digest in self.seen:
+            return
+        if len(self.seen) >= 2048:
+            self.emit('memory_limit', reason='source_count_limit', day=day)
+            return
+        self.seen[digest] = day
+        previous = self.folk_legends[day]
+        separator = '\n' if previous else ''
+        addition = separator + text
+        kept = addition[:max(0, DAY_TEXT_LIMIT - len(previous))]
+        self.folk_legends[day] = previous + kept
+        lost = len(addition) - len(kept)
+        self.omitted += lost
+        limits['input_chars'] += len(text)
+        limits['kept_chars'] = len(self.folk_legends[day])
+        limits['omitted_chars'] += lost
+        limits['truncated'] = bool(limits['omitted_chars'])
+        self.memory_bytes = sum(len(v.encode('utf-8')) for v in self.folk_legends.values())
+        if kept or (lost and limits['omitted_chars'] == lost):
+            self.version += 1
+        self.emit('source', day=day, fingerprint=digest, **limits, memory_bytes=self.memory_bytes,
+                  excerpt=kept, omitted_chars_total=self.omitted)
+        self.reason = 'new_information_pending'
 
     def needs_analysis(self):
-        return not self.exhausted and bool(self.sources) and (self.version!=self.analyzed_version or bool(self.recall) or self.retry_pending)
+        return (not self.exhausted and self.attempt_count < ATTEMPT_LIMIT
+                and any(self.folk_legends.values())
+                and (self.version != self.analyzed_version or self.retry_pending))
 
     def prompt(self, official='', source_day=1, *, purpose='treasure'):
-        relevant=[]
-        # Explicit backreferences come first, followed by every previously used
-        # evidence source, then unseen/new segments. The index enables recall.
-        def refs(value):
-            if isinstance(value,dict):
-                if isinstance(value.get('source'),str):relevant.append(value['source'])
-                for v in value.values():refs(v)
-            elif isinstance(value,list):
-                for v in value:refs(v)
-        refs(self.constraints)
-        ordered=list(dict.fromkeys(self.recall+relevant+list(reversed(self.sources))))
-        selected=[];used=0;self.request_sources=set()
-        for sid in ordered:
-            source=self.sources.get(sid)
-            if not source:continue
-            size=len(json.dumps(source,ensure_ascii=False))
-            if used+size>14000:continue
-            selected.append(source);used+=size;self.request_sources.add(sid)
-        self.request_version=self.version;self.recall=[]
-        self.request_id+=1;self.request_purpose=purpose;self.request_catalog_hash=self.catalog_hash
-        if purpose=='treasure':self.retry_pending=False
-        index=[{'id':k,'day':v['day'],'offset':v['offset'],'preview':v['text'][:50]} for k,v in self.sources.items()]
-        # All source IDs remain discoverable; previews, catalog and old model prose
-        # get independent budgets, so old clue IDs never fall off a suffix slice.
-        index_size=len(json.dumps(index,ensure_ascii=False))
-        if index_size>9000:index=[{k:v for k,v in row.items() if k!='preview'} for row in index]
-        catalog={};catalog_used=0;catalog_omitted=[]
-        for name,item in self.catalog.items():
-            size=len(json.dumps(item,ensure_ascii=False))+len(name)
-            if catalog_used+size>10000:catalog_omitted.append(name);continue
-            catalog[name]=item;catalog_used+=size
-        prior=self.constraints if len(json.dumps(self.constraints,ensure_ascii=False))<=5000 else {'known_materials':self.materials,'prior_constraints_omitted':True}
-        payload={'request_id':self.request_id,'purpose':purpose,'map_bounds':self.map_bounds,'sources':selected,'source_index':index,
-                 'omitted_source_count':len(self.sources)-len(selected),'omitted_memory_bytes':self.omitted,
-                 'previous_constraints':prior,'validation_failures':self.validation_failures[:12],
-                 'pending_correction_sources':[sid for sid,s in self.sources.items() if self.correction_resolved_version<self.correction_version<=s['version']],
-                 'last_validation_failure':self.last_validation_failure,'shop':catalog,'catalog_omitted':catalog_omitted,'official':official[:6000],'official_original_length':len(official),'official_day':source_day}
-        instruction='''Interpret folk treasure clues separately from official market news and task puzzles. Unknown map/mode stays unknown. Return strict JSON with market:[] and treasure object. Never use past-map answers. Reconcile corrections/exclusions and report unresolved conflicts; a new source can supersede an old conclusion only with explicit evidence. Each evidence is {source:"source ID",quote:"exact source substring"}. If relevant old evidence is omitted, return treasure:{lookup:[source IDs]} first. Do not guess an omitted source.
-Treasure schema: {mode:"treasure|unknown|none",materials:[{item:"exact current shop name",quantity:positive integer,effect:"required effect",shop_quote:"exact description substring OR exact item name when directly named by rumor",evidence:[evidence],quantity_evidence:[evidence]}],kind_count:integer|null,total_quantity:integer|null,count_evidence:[evidence],materials_complete:boolean,location:{x:integer,y:integer,evidence:[evidence]}|null,window:{day:integer,end_day:integer,phase:"any|day|night",evidence:[evidence]}|null,conflicts:[],unknown:[],exclusions:[],resolutions:[]}. Evidence must establish each quantity, not assume one per type. "n kinds" is distinct types, not total quantity. Resolve times relative to source day, use actual map coordinates from current clues, include derivation in unknown if not proven. Emit every individually proven material even if the rest, location or time are unknown: partial procurement is useful. Same-day complete clues are valid. Match effects against actual shop descriptions, never a fixed dictionary or self-reported confidence. Set materials_complete only when all requested effects/types/quantities are covered.
-Market schema: [{ore:"iron|copper|stone",start_day:integer,end_day:integer,price:number|null,closed:boolean,rising:boolean,recovery:boolean,evidence:"exact official quote",confidence:number}]. No fixed price day; explicit recovery cancels restrictions in its own window.
-'''
-        instruction += """
-Additional mandatory claim fields: materials include object, object_quote and effect_quote (exact cited phrases), plus derivation explaining the proposed object-to-current-item binding. Prefer effect as a short exact phrase. If paraphrasing/translating effect, include effect_relation:{claim:the exact effect value,quote:the exact effect_quote,reason:explanation}; this remains an inference, not semantic verification. Use separate evidence entries for separately arriving objects, effects and quantities. quantity_evidence must actually state the amount for this object or an explicit each/all rule; dates are not material quantities. Empty shop descriptions are allowed: propose exact catalog names with grounded explanations and label uncertainty; never invent shop descriptions. Nonempty descriptions must be cited faithfully. Missing descriptions alone do not mean treasure mode is unknown. Only weapon-shop purchases are supported; vendor-only material availability is unverified.
-Location must include precision:"exact|approximate" and derivation:{kind:"coordinate_literal"} for explicitly quoted coordinates, or {kind:"offset",anchor:[x,y],delta:[dx,dy],offset_quote:"source expression such as x+2 y-1"} for checkable arithmetic. Do not turn near/around into an exact sacrifice tile. Unsupported geometric deductions stay unknown. Include source-day-based window dates and phase; distinguish tomorrow from absolute dates. Preserve established facts on unknown; omitted fields are incremental updates. To retract a field provide retractions:[{field,reason,evidence}]. mode:none requires mode_evidence and reason. To resolve previous conflicts provide resolutions:[{reason,evidence}]. Never submit an empty treasure merely because only official news changed. Echo request_id at top level.
-"""
-        if purpose=='market_only':
-            payload={k:v for k,v in payload.items() if k in ('request_id','purpose','official','official_original_length','official_day')}
-            instruction='Interpret only official news. Return request_id and market; omit treasure. Market schema: '+instruction.split('Market schema: ')[1].split('Additional mandatory')[0]
-        result=instruction+json.dumps(payload,ensure_ascii=False)
-        self.last_request_signature=fingerprint(result)
-        self.emit('model_request',request_id=self.request_id,purpose=purpose,version=self.request_version,input_length=len(result),omitted_sources=len(self.sources)-len(selected),input=payload)
+        self.request_id += 1
+        self.request_version = self.version
+        self.request_purpose = purpose
+        if purpose == 'treasure':
+            self.retry_pending = False
+        payload = {'request_id': self.request_id, 'purpose': purpose, 'current_day': self.current_day,
+                   'official': official[:6000], 'official_day': source_day, 'official_original_length': len(official)}
+        instruction = ('官方新闻与民间传闻分开处理，新闻只影响市场预测。返回严格 JSON，回显 request_id。'
+                       '市场返回 ' + MARKET_SCHEMA + '。恢复消息覆盖自身窗口的旧限制，不猜固定价格日期。\n')
+        if purpose == 'market_only':
+            instruction += '本次只解读官方新闻，返回 request_id 与 market，不输出或修改宝藏结论。\n'
+        else:
+            catalog = []
+            for name, item in list(self.catalog.items())[:128]:
+                description = item['description'] or TASK_ITEM_HINTS.get(name, '')
+                catalog.append({'name': name, 'price': item['price'], 'description': description[:1000],
+                                'description_source': 'runtime' if item['description'] else 'public_rule_hint' if description else 'unavailable',
+                                'description_omitted_chars': max(0, len(description) - 1000)})
+            payload.update(folk_legends=self.folk_legends.copy(), folklore_limits={d: v.copy() for d, v in self.folklore_limits.items()},
+                           shop_catalog=catalog, catalog_omitted_count=max(0, len(self.catalog) - len(catalog)),
+                           map={'width': self.map_bounds[0], 'height': self.map_bounds[1]}, previous_result=self.result(),
+                           platform_feedback=list(self.platform_feedback), validation_failures=self.validation_failures,
+                           attempts_remaining=max(0, ATTEMPT_LIMIT - self.attempt_count))
+            instruction += f'''你负责从按来源天累积的中文传闻推断全部宝藏语义：物品及各自数量、祭坛坐标、开放日期与昼夜。自行结合故事上下文理解物体形态和效果，与当前货架描述或公开属性摘要匹配；不要要求中文故事出现英文货架名。祭品应为任务用品，不使用升级券、修补品或战斗道具。物品名必须精确选自 shop_catalog，不复用历史地图答案。
+自行判断更正、矛盾、模糊方位和信息是否充分。没有描述的物品也可根据名称和上下文推断；不要把没有程序可验证的引文当作放弃原因。不确定的字段留 null，不为凑齐结果而猜。每个已知物品的数量由语义决定，不默认全为一件。
+坐标原点在左下，x 向东/右增加，y 向北/上增加；尺寸使用输入 map。把自然语言方位自行换算成具体坐标。一天白天 {DAY_ROUNDS} 回合、夜晚 {NIGHT_ROUNDS} 回合，全局 {MATCH_DAYS} 天。相对日期一律按那条传闻的来源日换算，不按本次请求日；仅来自今天的“明天”才等于 current_day+1。区分未来开放与当前可开启。
+宝藏输出为顶层字段：{{request_id:整数,mode:"treasure|unknown|none",materials:[{{item:"当前货架名",quantity:1至40整数}}]|null,location:{{x:整数,y:整数}}|null,window:{{day:1至10整数,end_day:1至10整数,phase:"any|day|night"}}|null}}。需要时可同时给出 market。
+省略/null 保留 previous_result 中已有值；materials 非空列表完整替换此前材料集合，应包含仍有效的旧材料；materials:[] 明确清空。确定无宝藏才用 mode:none 并附 reason；unknown 不删除旧结论，已知材料仍可先采购，但要等你判断为 treasure 才出发开启。不要输出引文证明、推导校验或置信度字段。已知材料可以先采购，不必等位置与时间。mode 为 treasure 且材料、地点、窗口结构齐全时程序将安排出发，务必自行判断完整性。
+平台失败记录不可忽略：result_code=2 表示位置或时机有误，3 表示材料组合有误；避免再次建议对应失败条件。只有两次开启机会，按反馈修订；失败后物品可能已被消耗。\n'''
+        result = instruction + json.dumps(payload, ensure_ascii=False)
+        self.request_signature = fingerprint(result)
+        self.emit('model_request', request_id=self.request_id, purpose=purpose, version=self.request_version,
+                  input_length=len(result), fingerprint=self.request_signature, input=payload.copy())
         return result
 
-    def _evidence(self, values):
-        return cited(values,self.sources,self.request_sources)
-
-    def fail(self,reason,**detail):
-        self.reason=reason
-        self.last_validation_failure={'reason':reason,'request_id':self.request_id,'round':self.current_round,**detail}
-        self.emit('validation',**self.last_validation_failure)
-
     def retry_analysis(self):
-        if self.retry_version!=self.request_version:self.retry_version=self.request_version;self.retry_count=0
-        if self.retry_count<1:
-            self.retry_count+=1;self.retry_pending=True
+        if self.retry_version != self.request_version:
+            self.retry_version = self.request_version
+            self.retry_count = 0
+        if self.retry_count < 1:
+            self.retry_count += 1
+            self.retry_pending = True
 
-    def ingest_llm(self, raw, valid_days=None):
+    def ingest_llm(self, raw):
         from .tasking import parse_structured_llm
-        self.responses+=1
-        self.emit('model_response',request_id=self.request_id,response_number=self.responses,
-                  snapshot_version=self.request_version,current_version=self.version,output=raw)
-        parsed=parse_structured_llm(raw)
-        if not isinstance(parsed,dict):
-            self.analyzed_version=max(self.analyzed_version,self.request_version)
-            self.fail('invalid_json_schema');self.retry_analysis();return
-        if self.response_id_required and 'request_id' not in parsed:
-            self.fail('request_id_missing_after_timeout');self.retry_analysis();return
-        if 'request_id' in parsed and (type(parsed['request_id']) is not int or parsed['request_id']!=self.request_id):
-            self.fail('request_id_mismatch');return
-        if self.request_purpose=='market_only':
-            self.emit('market_only_response',request_id=self.request_id,treasure_ignored='treasure' in parsed);return
-        if self.request_catalog_hash!=self.catalog_hash:
-            self.analyzed_version=max(self.analyzed_version,self.request_version)
-            self.fail('catalog_changed_during_request');self.retry_analysis();return
-        data=parsed.get('treasure')
-        if not isinstance(data,dict):
-            self.analyzed_version=max(self.analyzed_version,self.request_version)
-            self.fail('invalid_json_schema');self.retry_analysis();return
-        lookup=data.get('lookup')
-        if isinstance(lookup,list):
-            self.recall=[s for s in lookup[:6] if isinstance(s,str) and s in self.sources and s not in self.request_sources]
-            self.analyzed_version=max(self.analyzed_version,self.request_version)
-            self.reason='recall_old_evidence' if self.recall else 'invalid_or_redundant_lookup'
-            self.emit('recall',request_id=self.request_id,sources=self.recall,reason=self.reason);return
-        # Validate against the request's immutable source IDs. Arrivals during
-        # latency are queued for another analysis, not grounds to discard facts.
-        self.analyzed_version=max(self.analyzed_version,self.request_version)
-        if data.get('mode')=='none':
-            if not self._evidence(data.get('mode_evidence')) or not data.get('reason'):
-                self.fail('unjustified_mode_retraction');return
-            self.mode='none';self.materials={};self.material_claims={};self.items=()
-            self.position=None;self.opening_day=None;self.complete=False;self.constraints=data
-            self.reason='explicit_no_treasure';return
-        if data.get('mode')=='treasure':self.mode='treasure'
-        # An unknown reply may add a fact, but cannot erase established facts by
-        # emitting null defaults. Destructive changes need current-source support.
-        fields=('materials','kind_count','total_quantity','count_evidence','materials_complete','location','window','unknown','exclusions')
-        meaningful=any(k in data and data[k] not in (None,[],False) for k in fields if k not in ('unknown','materials_complete'))
-        if data.get('mode','unknown')=='unknown' and not meaningful:
-            self.reason='unknown_preserved';self.emit('validation',request_id=self.request_id,reason=self.reason)
-            if self.validated_version!=self.request_version:self.retry_analysis()
-            return
-        previous=self.constraints
-        merged=dict(previous)
-        retractions=data.get('retractions',[])
-        allowed_retractions={r.get('field') for r in retractions if isinstance(r,dict) and isinstance(r.get('field'),str)
-                             and r.get('reason') and self._evidence(r.get('evidence'))} if isinstance(retractions,list) else set()
-        failures=[]
-        for key in fields:
-            if key not in data:continue
-            value=data[key]
-            if key in ('materials','location','window') and value in (None,[]) and previous.get(key) and key not in allowed_retractions:
-                failures.append({'field':key,'reason':'unjustified_field_retraction'});continue
-            if key=='materials' and isinstance(value,list) and value:
-                prior_materials=previous.get('materials') if isinstance(previous.get('materials'),list) else []
-                old={m['item']:m for m in prior_materials if isinstance(m,dict) and isinstance(m.get('item'),str)} if key not in allowed_retractions else {}
-                names=[m['item'] for m in value if isinstance(m,dict) and isinstance(m.get('item'),str)]
-                if len(names)!=len(set(names)):failures.append({'field':'materials','reason':'duplicate_material'})
-                for m in value:
-                    if isinstance(m,dict) and isinstance(m.get('item'),str):old[m['item']]=m
-                    else:failures.append({'field':'materials','reason':'material_shape'})
-                merged[key]=list(old.values())[:40]
-            else:merged[key]=[] if key=='materials' and value is None and key in allowed_retractions else value
-        incoming_conflicts=data.get('conflicts')
-        if incoming_conflicts:
-            merged['conflicts']=incoming_conflicts
-        elif previous.get('conflicts'):
-            resolutions=data.get('resolutions',[])
-            valid_resolution=(isinstance(resolutions,list) and bool(resolutions) and all(isinstance(r,dict) and r.get('reason') and self._evidence(r.get('evidence')) for r in resolutions))
-            if valid_resolution:merged['conflicts']=[]
-        else:merged['conflicts']=[]
-        merged['mode']=self.mode
-        self.constraints=merged
-        allowed=self.accepted_sources|self.request_sources
-        self.materials={};self.material_claims={}
-        incoming_materials=data.get('materials',[])
-        updated={m.get('item') for m in incoming_materials if isinstance(m,dict) and isinstance(m.get('item'),str)} if isinstance(incoming_materials,list) else set()
-        material=merged.get('materials',[])
-        if not isinstance(material,list):
-            failures.append({'field':'materials','reason':'material_shape'});material=[]
-        for m in material[:40]:
-            name=m.get('item') if isinstance(m,dict) else None
-            claim,error=material_claim(m,self.catalog,self.sources,self.request_sources if name in updated else allowed)
-            if error:
-                failures.append({'field':'materials','item':name,'reason':error,
-                                 'vendor_only_unverified':isinstance(name,str) and name in self.vendor_names and name not in self.catalog});continue
-            if name in self.materials:
-                failures.append({'field':'materials','item':name,'reason':'duplicate_material'});continue
-            self.materials[name]=claim['quantity'];self.material_claims[name]=claim
-        material_failed=any(f['field']=='materials' for f in failures)
-        skipped=[]
-        for key,actual in [('kind_count',len(self.materials)),('total_quantity',sum(self.materials.values()))]:
-            value=merged.get(key)
-            if value is None:continue
-            if material_failed:
-                skipped.append(key);continue
-            if type(value) is not int or value!=actual or not cited(merged.get('count_evidence'),self.sources,allowed):
-                failures.append({'field':key,'reason':key+'_mismatch'})
-        self.items=tuple(name for name,n in sorted(self.materials.items()) for _ in range(n))
-        self.complete=bool(self.materials) and merged.get('materials_complete') is True and not failures and not merged.get('unknown')
-        if merged.get('location') is not None:
-            location,error=location_claim(merged['location'],self.sources,self.request_sources if 'location' in data else allowed,self.map_bounds)
-            if error:failures.append({'field':'location','reason':error})
-            else:self.position=location
-        elif 'location' in allowed_retractions:self.position=None
-        if merged.get('window') is not None:
-            days=set(valid_days) if valid_days is not None else {v['day'] for v in self.sources.values()}
-            window,error=window_claim(merged['window'],self.sources,self.request_sources if 'window' in data else allowed,days)
-            if error:failures.append({'field':'window','reason':error})
-            else:self.opening_day,self.end_day,self.phase=window
-        elif 'window' in allowed_retractions:self.opening_day=None
-        if merged.get('conflicts'):
-            failures.insert(0,{'field':'conflicts','reason':'unresolved_conflicts'})
-            self.complete=False
-        self.validation_failures=failures
-        self.accepted_catalog_hash=self.request_catalog_hash
-        self.accepted_sources.update(self.request_sources)
-        if not failures and self.mode=='treasure':self.validated_version=self.request_version
-        if not failures and self.correction_version<=self.request_version:
-            resolutions=data.get('resolutions',[])
-            if isinstance(resolutions,list) and any(isinstance(r,dict) and r.get('reason') and self._evidence(r.get('evidence'))
-                and any(self.sources[e['source']].get('version',0)>=self.correction_version for e in r['evidence']) for r in resolutions):
-                self.correction_resolved_version=self.request_version
-        self.candidate_version+=1;self.confidence=0.0
-        ready=self.complete and self.position and self.opening_day and not failures
-        self.reason='candidate_ready' if ready else 'partial_evidence'
+        self.responses += 1
+        self.emit('model_response', request_id=self.request_id, response_number=self.responses,
+                  snapshot_version=self.request_version, current_version=self.version, output=raw)
+        parsed = parse_structured_llm(raw)
+        self.analyzed_version = max(self.analyzed_version, self.request_version) if self.request_purpose == 'treasure' else self.analyzed_version
+        if not isinstance(parsed, dict):
+            self.fail('invalid_json_schema'); self.retry_analysis(); return False
+        if self.request_id <= 0 or type(parsed.get('request_id')) is not int or parsed['request_id'] != self.request_id:
+            self.fail('request_id_mismatch'); self.retry_analysis(); return False
+        if self.request_purpose == 'market_only':
+            self.emit('market_only_response', request_id=self.request_id)
+            return True
+        mode = parsed.get('mode', 'unknown')
+        self.mode = mode if isinstance(mode, str) and mode in ('treasure', 'unknown', 'none') else 'unknown'
+        failures = []
+        if self.mode == 'none':
+            self.materials.clear(); self.position = None; self.opening_day = None
+        else:
+            material = parsed.get('materials')
+            if material is not None:
+                if not isinstance(material, list):
+                    failures.append({'field': 'materials', 'reason': 'material_shape'})
+                else:
+                    accepted = {}
+                    for index, entry in enumerate(material):
+                        error = ''
+                        name = entry.get('item') if isinstance(entry, dict) else None
+                        count = entry.get('quantity') if isinstance(entry, dict) else None
+                        if not isinstance(entry, dict): error = 'material_shape'
+                        elif not isinstance(name, str) or name not in self.catalog: error = 'out_of_catalog'
+                        elif type(count) is not int or not 1 <= count <= 40: error = 'quantity_shape'
+                        elif name in accepted: error = 'duplicate_material'
+                        if error:
+                            failures.append({'field': 'materials', 'index': index, 'reason': error})
+                        else:
+                            accepted[name] = count
+                    self.materials = accepted
+            location = parsed.get('location')
+            if location is not None:
+                x = location.get('x') if isinstance(location, dict) else None
+                y = location.get('y') if isinstance(location, dict) else None
+                if type(x) is int and type(y) is int and 0 <= x < self.map_bounds[0] and 0 <= y < self.map_bounds[1]:
+                    self.position = Pos(x, y)
+                else:
+                    self.position = None
+                    failures.append({'field': 'location', 'reason': 'location_shape_or_bounds'})
+            window = parsed.get('window')
+            if window is not None:
+                start = window.get('day') if isinstance(window, dict) else None
+                end = window.get('end_day') if isinstance(window, dict) else None
+                phase = window.get('phase') if isinstance(window, dict) else None
+                if (type(start) is int and type(end) is int and 1 <= start <= end <= MATCH_DAYS
+                        and isinstance(phase, str) and phase in ('any', 'day', 'night')):
+                    self.opening_day, self.end_day, self.phase = start, end, phase
+                else:
+                    self.opening_day = None
+                    failures.append({'field': 'window', 'reason': 'window_shape'})
+        self.validation_failures = failures
+        self.candidate_version += 1
+        self.reason = 'explicit_no_treasure' if self.mode == 'none' else 'candidate_ready' if self.complete else 'partial_information'
         if failures:
-            self.fail(failures[0]['reason'],field=failures[0]['field']);self.retry_analysis()
-        self.emit('candidate',request_id=self.request_id,response_number=self.responses,candidate_version=self.candidate_version,
-                  snapshot_version=self.request_version,current_version=self.version,reason=self.reason,
-                  failures=failures,dependent_checks_skipped=skipped,materials=self.materials,
-                  material_claims=self.material_claims,complete=self.complete,
-                  location=([self.position.x,self.position.y] if self.position else None),window=merged.get('window'),
-                  unknown=merged.get('unknown',[]),constraints=merged)
+            self.fail(failures[0]['reason'], field=failures[0]['field'])
+            self.retry_analysis()
+        self.emit('candidate', request_id=self.request_id, response_number=self.responses,
+                  candidate_version=self.candidate_version, snapshot_version=self.request_version,
+                  current_version=self.version, reason=self.reason, failures=failures, complete=self.complete,
+                  mode=self.mode, semantics='llm_inferred', material_spent=self.material_spent,
+                  attempts=self.attempt_count, model_reason=str(parsed.get('reason', ''))[:500], **self.result())
+        return True
 
-    def apply_result(self,result_code):
-        if result_code in (1,4):
-            self.exhausted=True;self.reason='opened' if result_code==1 else 'already_taken'
-            if result_code==1:
-                for claim in self.material_claims.values():claim['platform']='opening_success'
-        elif result_code in (2,3):
-            self.reason='wrong_location_or_time' if result_code==2 else 'wrong_materials'
-            self.complete=False;self.confidence=0
-            if self.pending_attempt:self.rejected.add(self.pending_attempt)
-            if result_code==3:self.rejected_material_sets.add(self.items)
-            if result_code==2:self.rejected_sites.add(self.signature()[:4])
-            self.constraints['platform_failure']=self.reason
-            # Permit one new analysis of actual feedback; not the same sacrifice.
-            self.version+=1
-        if result_code==0 and self.pending_attempt:
-            self.reason='illegal_or_missing_feedback';self.rejected.add(self.pending_attempt)
-            self.constraints['platform_failure']=self.reason;self.version+=1
-        if result_code in (0,2,3) and self.pending_attempt:self.fail(self.reason,field='platform')
-        if result_code or self.pending_attempt:self.emit('result',code=result_code,reason=self.reason,attempt_round=self.pending_round)
-        self.pending_attempt=None
-
-    def signature(self):return (self.position,self.opening_day,self.end_day,self.phase,self.items)
-
-    def available(self,turn):
-        return (not self.exhausted and bool(self.materials) and self.mode=='treasure'
-                and not self.expired(turn) and self.correction_version<=self.correction_resolved_version
-                and self.accepted_catalog_hash==self.catalog_hash and not self.constraints.get('conflicts')
-                and not any(f['reason']=='unjustified_field_retraction' for f in self.validation_failures)
-                and self.items not in self.rejected_material_sets and self.signature() not in self.rejected)
-
-    def expired(self,turn):
-        return self.opening_day is not None and turn.round_no>(self.end_day-1)*130+(70 if self.phase=='day' else 130)
-
-    def inferred(self):
-        return {name for name,c in self.material_claims.items() if c['binding']=='inferred'}
-
-    def inference_allowed(self):
-        inferred=self.inferred()
-        return not inferred or (len(inferred)<=6 and sum(self.materials[n] for n in inferred)<=12
-                                and self.inferred_attempts<self.inferred_attempt_limit)
-
-    def window_valid(self,turn):
-        return self.opening_day is not None and self.opening_day<=turn.day_index<=self.end_day and (self.phase=='any' or self.phase==('day' if turn.is_day else 'night'))
-
-    def expedition_ready(self,turn,pioneer):
-        return bool(self.available(turn) and self.complete and self.position and turn.map_info.contains(self.position)
-                    and self.validated_version==self.version and not self.validation_failures and self.inference_allowed()
-                    and self.signature()[:4] not in self.rejected_sites
-                    and self.opening_day is not None and turn.day_index<=self.end_day
-                    and not Counter(self.items)-Counter(pioneer.backpack) and self.signature() not in self.rejected)
-
-    def departure_due(self,turn,pioneer,config):
-        if not self.expedition_ready(turn,pioneer) or not pioneer.pos:return False
-        grid,_=safe_grid(turn,config)
-        path=shortest_path(grid,pioneer.pos,interaction_cells(grid,self.position))
-        if not path:return False
-        opening=(self.opening_day-1)*130+(71 if self.phase=='night' else 1)
-        if self.phase=='day' and not turn.is_day and turn.day_index>=self.opening_day:
-            if turn.day_index>=self.end_day:return False
-            opening=turn.day_index*130+1
-        return opening-turn.round_no<=len(path)-1+2
-
-    def can_attempt(self,turn,pioneer,config):
-        return bool(self.expedition_ready(turn,pioneer) and self.window_valid(turn) and pioneer.pos
-                    and pioneer.pos.distance_to(self.position)==1 and self.signature() not in self.attempted)
-
-    def action(self,turn,pioneer,config):
-        if not self.can_attempt(turn,pioneer,config):return None
-        return Action(pioneer.unit_id,ActionType.SUMMON_TREASURE,targets=(self.position,),items=self.items)
-
-    def issued(self,turn,action):
-        if action.action_type==ActionType.BUY and action.name in self.inferred():
-            role=turn.team_our.unit(action.actor_id)
-            if role and role.role_type=='pioneer':
-                # Conservative exposure budget: accepted orders are charged even
-                # if feedback is absent, rather than risking endless purchases.
-                self.inferred_spent+=next((i.price for i in turn.weapon_shop if i.name==action.name),0)*(action.quantity or 1)
+    def apply_result(self, result_code):
+        if result_code in (1, 4):
+            self.exhausted = True
+            self.reason = 'opened' if result_code == 1 else 'already_taken'
+        attempt = self.pending_attempt
+        if attempt is None:
             return
-        if action.action_type!=ActionType.SUMMON_TREASURE:return
-        if self.inferred():self.inferred_attempts+=1
-        self.pending_attempt=self.signature();self.pending_round=turn.round_no;self.attempted.add(self.pending_attempt)
-        self.emit('opening',candidate=self.candidate_version,items=self.materials,inferred_attempt=self.inferred_attempts,
-                  bindings={n:c['binding'] for n,c in self.material_claims.items()})
+        position, start, end, phase, items = attempt
+        feedback = {'result_code': result_code, 'attempt_round': self.pending_round,
+                    'location': position.to_raw() if position else None,
+                    'window': {'day': start, 'end_day': end, 'phase': phase},
+                    'materials': [{'item': n, 'quantity': q} for n, q in Counter(items).items()]}
+        self.platform_feedback.append(feedback)
+        self.platform_feedback = self.platform_feedback[-ATTEMPT_LIMIT:]
+        if result_code in (0, 2, 3):
+            self.rejected.add(attempt)
+            if result_code == 3: self.rejected_material_sets.add(items)
+            if result_code == 2: self.rejected_sites.add(attempt[:4])
+            self.version += 1
+            reason = {0: 'illegal_or_missing_feedback', 2: 'wrong_location_or_time', 3: 'wrong_materials'}[result_code]
+            self.fail(reason, field='platform')
+        self.emit('result', reason=self.reason, attempts=self.attempt_count, **feedback)
+        self.pending_attempt = None
+
+    def signature(self):
+        return (self.position, self.opening_day, self.end_day, self.phase, self.items)
+
+    def available(self, turn):
+        return (not self.exhausted and self.attempt_count < ATTEMPT_LIMIT and bool(self.materials)
+                and self.mode != 'none' and not self.expired(turn)
+                and self.items not in self.rejected_material_sets and self.signature() not in self.rejected
+                and self.signature()[:4] not in self.rejected_sites)
+
+    def expired(self, turn):
+        return (self.opening_day is not None
+                and turn.round_no > (self.end_day - 1) * ROUNDS_PER_DAY + (DAY_ROUNDS if self.phase == 'day' else ROUNDS_PER_DAY))
+
+    def window_valid(self, turn):
+        return (self.opening_day is not None and self.opening_day <= turn.day_index <= self.end_day
+                and (self.phase == 'any' or self.phase == ('day' if turn.is_day else 'night')))
+
+    def expedition_ready(self, turn, pioneer):
+        return bool(self.available(turn) and self.mode == 'treasure' and self.complete and turn.map_info.contains(self.position)
+                    and not Counter(self.items) - Counter(pioneer.backpack))
+
+    def departure_due(self, turn, pioneer, config):
+        if not self.expedition_ready(turn, pioneer) or not pioneer.pos:
+            return False
+        grid, _ = safe_grid(turn, config)
+        path = shortest_path(grid, pioneer.pos, interaction_cells(grid, self.position))
+        if not path:
+            return False
+        opening = (self.opening_day - 1) * ROUNDS_PER_DAY + (DAY_ROUNDS + 1 if self.phase == 'night' else 1)
+        if self.phase == 'day' and not turn.is_day and turn.day_index >= self.opening_day:
+            if turn.day_index >= self.end_day:
+                return False
+            opening = turn.day_index * ROUNDS_PER_DAY + 1
+        return opening - turn.round_no <= len(path) - 1 + 2
+
+    def can_attempt(self, turn, pioneer, config):
+        return bool(self.expedition_ready(turn, pioneer) and self.window_valid(turn) and pioneer.pos
+                    and pioneer.pos.distance_to(self.position) == 1 and self.signature() not in self.attempted)
+
+    def action(self, turn, pioneer, config):
+        if not self.can_attempt(turn, pioneer, config):
+            return None
+        return Action(pioneer.unit_id, ActionType.SUMMON_TREASURE, targets=(self.position,), items=self.items)
+
+    def issued(self, turn, action):
+        if action.action_type == ActionType.BUY and action.name in self.materials:
+            role = turn.team_our.unit(action.actor_id)
+            if role and role.role_type == 'pioneer':
+                # Charge accepted orders conservatively even with missing feedback.
+                self.material_spent += next((i.price for i in turn.weapon_shop if i.name == action.name), 0) * action.quantity
+            return
+        if action.action_type != ActionType.SUMMON_TREASURE:
+            return
+        self.attempt_count += 1
+        self.pending_attempt = self.signature()
+        self.pending_round = turn.round_no
+        self.attempted.add(self.pending_attempt)
+        self.emit('opening', candidate=self.candidate_version, items=self.materials.copy(), attempts=self.attempt_count)
 
     def plan(self,turn,pioneer,config,spending,*,guard_ready=False):
         from .tasking import AdvancedPlan
         def wait(reason):
             self.reason=reason;return AdvancedPlan()
         if turn.phase_task:return wait('active_task')
+        if self.exhausted:return wait('exhausted')
         if self.expired(turn):return wait('window_expired')
-        if not self.available(turn) or not pioneer.pos:return wait('await_evidence' if not self.exhausted else 'exhausted')
-        if not self.inference_allowed():return wait('inferred_attempt_or_size_limit')
+        if self.attempt_count>=ATTEMPT_LIMIT:return wait('attempt_limit')
+        if self.items in self.rejected_material_sets:return wait('rejected_material_set')
+        if self.signature()[:4] in self.rejected_sites:return wait('rejected_location_window')
+        if not self.available(turn) or not pioneer.pos:return wait('await_information')
         grid,danger=safe_grid(turn,config)
         if pioneer.pos in danger:return AdvancedPlan(move=escape_intent(turn,pioneer,config,danger))
         missing=Counter(self.items)-Counter(pioneer.backpack)
@@ -430,8 +374,8 @@ Location must include precision:"exact|approximate" and derivation:{kind:"coordi
             from .economy import due_defense_targets, next_development_target, upgrade_item
             target=next_development_target(turn,config)
             prices={i.name:i.price for i in turn.weapon_shop}
-            inferred_cost=sum(prices.get(name,self.inferred_gold_limit+1)*n for name,n in missing.items() if name in self.inferred())
-            if self.inferred_spent+inferred_cost>self.inferred_gold_limit:return wait('inferred_purchase_budget')
+            material_cost=sum(prices.get(name,config.treasure_material_gold_cap+1)*n for name,n in missing.items())
+            if self.material_spent+material_cost>config.treasure_material_gold_cap:return wait('material_gold_cap')
             weapons=[w for w in turn.team_our.roles if w.is_weapon and w.alive]
             basic=max(0,config.max_weapon_count-sum(w.level>=2 for w in weapons)-sum(r.backpack.count('WeaponUpgradeVoucher1') for r in turn.controllable))
             reserve=max(config.treasure_gold_reserve,prices.get(upgrade_item(target),0),basic*prices.get('WeaponUpgradeVoucher1',100))
@@ -448,6 +392,7 @@ Location must include precision:"exact|approximate" and derivation:{kind:"coordi
                 return AdvancedPlan(action=Action(pioneer.unit_id,ActionType.BUY,name=name,quantity=n))
             if not shortest_path(grid,pioneer.pos,goals):return wait('unsafe_shop_route')
             self.reason='travel_shop';return AdvancedPlan(move=MoveIntent(pioneer.unit_id,goals,95,avoid_cells=danger))
+        if self.mode!='treasure':return wait('model_information_incomplete')
         if not self.expedition_ready(turn,pioneer):return wait('await_location_window_or_remaining_materials')
         if not self.departure_due(turn,pioneer,config):return wait('future_window_departure_not_due')
         if not turn.is_day and not guard_ready:return wait('await_guard_handover')
