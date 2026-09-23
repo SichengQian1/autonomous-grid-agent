@@ -10,12 +10,16 @@ from .geometry import Pos
 from .combat import ROBOT_ATTACK
 
 
-def support_plan(turn,role,config,threats,recent_damage=0):
+def support_plan(turn,role,config,threats,recent_damage=0,claimed=()):
     if not role.pos:return LogisticsPlan()
     from .wall_supply import wall_use_item, wall_target
     walls=front_walls(turn);due=due_defense_targets(turn,config)
     walls += [w for w in turn.team_our.roles if w.role_type=="wall" and w.alive and wall_target(turn,w)>1 and w not in walls]
     walls+= [w for w in due if w.role_type=='wall' and w not in walls]
+    # Upgrade policy is deliberately limited; repair coverage is not. A weak
+    # unplanned flank can expose the station despite a healthy front array.
+    walls += [w for w in turn.team_our.roles if w.role_type=='wall' and w.alive and w.pos and w not in walls]
+    walls = [w for w in walls if w.pos not in claimed]
     layout=build_defense_layout(turn)
     grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
     station=turn.team_our.station()
@@ -68,7 +72,11 @@ def support_plan(turn,role,config,threats,recent_damage=0):
     nearby=any(role.pos.distance_to(w.pos)<=1 for w in walls)
     if nearby and not exposed(role.pos):
         return LogisticsPlan(move=MoveIntent(role.unit_id,(role.pos,),100),reason='support_hold_protected',evidence=(('unreachable_wall_risk',endangered),))
-    if (grid.passable(post) or role.pos==post) and not exposed(post):return LogisticsPlan(move=MoveIntent(role.unit_id,(post,),100,avoid_cells=danger),reason="support_wait_with_goods")
+    occupied={r.pos for r in turn.controllable if r.unit_id!=role.unit_id}
+    posts=tuple(p for p in (post,)+post.neighbours() if p not in occupied
+                and (grid.passable(p) or p==role.pos) and not exposed(p)
+                and turn.coordinate_frame.normalize(p).x<front)
+    if posts:return LogisticsPlan(move=MoveIntent(role.unit_id,posts,100,avoid_cells=danger),reason="support_wait_with_goods")
     return retreat()
 
 

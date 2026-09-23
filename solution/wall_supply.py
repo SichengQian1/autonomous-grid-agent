@@ -105,3 +105,24 @@ def wall_use_item(turn,wall,role,config,incoming=0,steps=0):
     if wall.level<wall_target(turn,wall) and item in role.backpack and (low or deadline):return item
     if low and missing>=maximum*config.wall_repair_min_damage and 'WallFixer' in role.backpack:return 'WallFixer'
     return ''
+
+
+def final_helper_stock(turn,role,engineer,budget,config):
+    """A second repair carrier for the final night, without taking engineer funds."""
+    if not turn.is_day or turn.day_index<config.final_defense_day or not role or not role.pos:
+        return LogisticsPlan()
+    trip=TravelBudget.for_role(turn,role,config,wall_support=True)
+    goals=tuple(p for s in turn.zone_positions('weaponShop') for p in interaction_cells(trip.grid,s))
+    need=max(0,config.final_helper_repairs-role.backpack.count('WallFixer'))
+    prices={i.name:i.price for i in turn.weapon_shop};price=prices.get('WallFixer',0)
+    engineer_cost=sum(prices.get(n,100000)*q for n,q in wall_needs(turn,engineer,config).items()) if engineer else 0
+    cash=max(0,turn.team_our.gold-budget.mandatory-engineer_cost)
+    quantity=min(need,max(0,role.backpack_capacity-len(role.backpack)),cash//price) if price else 0
+    if quantity and goals and trip.fits(((goals,1),)):
+        if turn.rounds_until_night<=trip.cost(((goals,1),))+config.mining_batch_size+trip.margin:
+            if role.pos in goals:
+                return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name='WallFixer',quantity=quantity),reason='final_helper_purchase')
+            return LogisticsPlan(move=MoveIntent(role.unit_id,goals,97),reason='final_helper_shop_trip')
+    if trip.cost()+trip.margin>=turn.rounds_until_night:
+        return LogisticsPlan(move=MoveIntent(role.unit_id,trip.goals,119),reason='final_helper_return')
+    return LogisticsPlan(reason='mine_before_final_helper_trip')

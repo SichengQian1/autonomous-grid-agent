@@ -8,7 +8,7 @@ from .geometry import Pos
 from .models import Robot, Turn, Unit
 from .grid import OccupancyGrid, distance_field, interaction_cells
 from .defense import build_defense_layout, _controller_sites
-from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET, DEFAULT_CONFIG
+from .rules import ROLE_GATLING, ROLE_RAILGUN, ROLE_ROCKET, DEFAULT_CONFIG, DAY_ROUNDS
 
 
 ROBOT_SCORE = {
@@ -95,8 +95,10 @@ def plan_attacks(
     turn: Turn,
     assignments: tuple[ControllerAssignment, ...],
     robots: tuple[Robot, ...],
+    priority_targets: tuple[Robot, ...] = (),
 ) -> tuple[Action, ...]:
-    projected = {robot.robot_id: robot.health for robot in robots}
+    all_robots = tuple({r.robot_id:r for r in robots + priority_targets}.values())
+    projected = {robot.robot_id: robot.health for robot in all_robots}
     actions: list[Action] = []
     used=set()
     for assignment in sorted(assignments, key=lambda item: _weapon_priority(item.weapon)):
@@ -115,6 +117,11 @@ def plan_attacks(
             and projected.get(robot.robot_id, 0) > 0
             and weapon.pos.distance_to(robot.pos) <= weapon.attack_range
         )
+        if weapon.role_type == ROLE_ROCKET and weapon.level >= 3:
+            preferred = tuple(r for r in priority_targets if r.pos and projected.get(r.robot_id,0)>0
+                              and weapon.pos.distance_to(r.pos)<=weapon.attack_range)
+            if preferred:
+                in_range = preferred
         if not in_range:
             continue
         targets = _targets_for_weapon(weapon, in_range, projected, turn)
@@ -129,8 +136,33 @@ def plan_attacks(
             )
         )
         used.add(controller.unit_id)
-        _apply_projected_damage(weapon, targets, robots, projected)
+        _apply_projected_damage(weapon, targets, all_robots, projected)
     return tuple(actions)
+
+
+def raid_targets(turn, config):
+    """Ten-turn experiment, with a conservative immediate home-danger override."""
+    if (turn.is_day or turn.day_index < config.opening_raid_day
+            or turn.round_in_day > DAY_ROUNDS + config.opening_raid_turns):
+        return (), 'outside_opening_raid'
+    if not any(w.is_weapon and w.role_type==ROLE_ROCKET and w.level>=3 and w.alive for w in turn.team_our.roles):
+        return (), 'no_level_three_rocket'
+    from .defense import own_threats
+    from .maintenance import wall_damage_risk
+    base=turn.team_our.station()
+    threats=own_threats(turn)
+    if not base:return (), 'no_base'
+    if any(r.pos and min(r.pos.distance_to(p) for p in base.footprint()) <= (r.attack_range or config.robot_attack_range_fallback)
+           for r in threats):
+        return (), 'home_contact_emergency'
+    if any(w.health <= wall_damage_risk(w,config,threats)[1]*2
+           for w in turn.team_our.roles if w.role_type=='wall' and w.alive and w.pos):
+        return (), 'wall_collapse_emergency'
+    from .rules import TEAM_CHALLENGER, TEAM_DEFENDER
+    enemy={TEAM_CHALLENGER:TEAM_DEFENDER,TEAM_DEFENDER:TEAM_CHALLENGER}.get(turn.team_our.team_type)
+    targets=tuple(r for r in turn.robots if enemy and r.target_team==enemy and r.health>0 and r.pos
+                  and r.role_type in ('smallRobot','middleRobot'))
+    return targets, 'opening_opponent_raid' if targets else 'no_opponent_small_medium'
 
 
 def _weapon_priority(weapon: Unit) -> tuple[int, int]:

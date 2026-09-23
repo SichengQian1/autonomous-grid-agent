@@ -181,7 +181,7 @@ def build_turn_event(
             )
     return {
         "v": 2,
-        "agentVersion": "v0.17",
+        "agentVersion": "v0.18",
         "event": "turn",
         "r": turn.round_no,
         "d": turn.day_index,
@@ -231,6 +231,7 @@ class Telemetry:
     sequence: int = 0
     generation: int = -1
     zone_signature: tuple = ()
+    dropped_events: int = 0
 
     def emit(self, event: Mapping[str, Any], *, critical: bool = False) -> bool:
         try:
@@ -238,7 +239,13 @@ class Telemetry:
             size = len(line.encode("utf-8")) + 64  # Include logging prefix/newline.
             normal_limit = max(0, self.byte_budget - self.reserve_bytes)
             limit = self.byte_budget if critical else normal_limit
+            # Keep a separate part of the existing budget for all 60 final-night
+            # turns. Earlier "critical" traces must not consume this reserve.
+            final_turn=event.get('event')=='turn' and event.get('r',0)>=1241
+            if critical and not final_turn and self.byte_budget>=256*1024:
+                limit=min(limit,self.byte_budget-min(self.reserve_bytes*3//4,192*1024))
             if self.used_bytes + size > limit:
+                self.dropped_events += 1
                 return False
             LOGGER.info(line)
             self.used_bytes += size
@@ -257,7 +264,7 @@ class Telemetry:
         dropped_actions: int,
         diagnostics: Mapping[str, Any] | None = None,
     ) -> None:
-        critical = bool(turn.errors) or turn.round_in_day in {1, 70, 71, 130}
+        critical = bool(turn.errors) or turn.round_in_day in {1, 70, 71, 130} or turn.round_no>=1241
         if turn.team_our.station() is None and not critical and turn.round_no % 30:
             return
         event = build_turn_event(
@@ -267,6 +274,7 @@ class Telemetry:
             dropped_actions=dropped_actions,
         )
         event["diagnostics"] = dict(diagnostics or {})
+        event['logDroppedEvents']=self.dropped_events
         # Distribute the budget across the match instead of spending it in opening nights.
         allowance = 32000 + (self.byte_budget-self.reserve_bytes)*min(turn.round_no,1300)//1300
         if self.used_bytes > allowance and not critical:

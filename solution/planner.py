@@ -31,7 +31,7 @@ from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
 from .travel import TravelBudget
 from .maintenance import support_plan
-from .wall_supply import wall_stock_plan
+from .wall_supply import wall_stock_plan, final_helper_stock
 from .surplus_bomb import SurplusBomb
 from .roles import GuardHandover, wall_goods
 from .route_safety import danger_cells, escape_intent
@@ -64,6 +64,7 @@ class CompetitionPlanner:
     surplus_bomb: SurplusBomb = field(default_factory=SurplusBomb)
     support_health: tuple | None = None
     support_damage: int = 0
+    raid_status: str = ''
 
     def plan(
         self,
@@ -125,10 +126,12 @@ class CompetitionPlanner:
         self.logistics.weapon_buyer_id=(self.guard.backup_id if self.guard.away or pioneer is None else pioneer.unit_id)
         self.economy.main_miner_id=next((w.unit_id for w in workers if w.unit_id!=self.engineer_id),None)
         self.economy.returning_roles={self.support_id} if turn.day_index>=config.night_support_day else set()
+        if turn.day_index>=config.final_defense_day and self.economy.main_miner_id is not None:
+            self.economy.returning_roles.add(self.economy.main_miner_id)
         self.economy.reserve_stone={self.engineer_id:config.engineer_stone_reserve}
         self.wall_supply_status={}
         self.surplus_bomb.observe(turn)
-        self.surplus_bomb.status={'reason':'daytime_or_no_free_miner'}
+        self.surplus_bomb.status={'reason':'engineer_busy_or_not_due'}
         self.economy.activity.clear()
         self.economy.evidence.clear()
         self.opponent.update(turn, state.generation)
@@ -198,13 +201,21 @@ class CompetitionPlanner:
         treasure_prompt = ""
         guard_ready=False
         expedition=bool(pioneer and self.treasure.departure_due(turn,pioneer,config))
+        prepare_guard=False
+        if pioneer and self.treasure.preceding_night(turn,pioneer):
+            miner=turn.team_our.unit(self.economy.main_miner_id)
+            if miner:
+                grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+                path=shortest_path(grid,miner.pos,layout.controller_sites[:1])
+                # Includes approaching, vacating and entering the common post.
+                prepare_guard=self.guard.away or bool(path and turn.rounds_until_night<=len(path)-1+4)
         long_trip=False
         if expedition:
             trip=TravelBudget.for_role(turn,pioneer,config)
             goals=interaction_cells(trip.grid,self.treasure.position)
             long_trip=not trip.fits(((goals,1),)) or (self.treasure.phase=='night' and self.treasure.opening_day==turn.day_index)
-        if expedition and (long_trip or self.guard.away):
-            assignments,handover,guard_ready=self.guard.coordinate(turn,existing_weapons(turn),config,True)
+        if prepare_guard or expedition and (long_trip or self.guard.away):
+            assignments,handover,guard_ready=self.guard.coordinate(turn,existing_weapons(turn),config,True,preferred_backup=self.economy.main_miner_id)
             intents.extend(handover);used.update(i.actor_id for i in handover)
             if guard_ready:
                 backup=turn.team_our.unit(self.guard.backup_id)
@@ -217,6 +228,15 @@ class CompetitionPlanner:
             self.economy.activity[support.unit_id]=stock.reason
             self.economy.evidence[support.unit_id]={"supply":stock.evidence}
             self._merge_advanced(stock,actions,intents,used)
+            if support.unit_id not in used:
+                bomb=self.surplus_bomb.plan(turn,support,support,budget,config)
+                self._merge_advanced(bomb,actions,intents,used)
+                if bomb.action or bomb.move:self.economy.activity[support.unit_id]=bomb.reason
+        helper=next((w for w in workers if w.unit_id==self.economy.main_miner_id and w.unit_id not in used),None)
+        if helper:
+            stock=final_helper_stock(turn,helper,turn.team_our.unit(self.support_id),budget,config)
+            self._merge_advanced(stock,actions,intents,used)
+            if stock.action or stock.move:self.economy.activity[helper.unit_id]=stock.reason
         recall_intents = self._individual_recall(turn, state, config, self.support_id)
         if guard_ready:
             recall_intents=[i for i in recall_intents if i.actor_id!=pioneer.unit_id]
@@ -426,8 +446,10 @@ class CompetitionPlanner:
         want_away=bool(pioneer and self.treasure.departure_due(turn,pioneer,config)
                        and (self.treasure.window_valid(turn) or self.treasure.opening_day==turn.day_index+1))
         blocked=[actor for actor,count in state.failed_move_counts.items() if count>=3]
-        if threats or want_away or self.guard.away or pioneer is None or pioneer.unit_id in blocked:
-            assignments,handover,guard_ready=self.guard.coordinate(turn,combat_weapons,config,want_away,blocked)
+        from .combat import raid_targets
+        raiders,self.raid_status=raid_targets(turn,config)
+        if threats or raiders or want_away or self.guard.away or pioneer is None or pioneer.unit_id in blocked:
+            assignments,handover,guard_ready=self.guard.coordinate(turn,combat_weapons,config,want_away,blocked,preferred_backup=self.economy.main_miner_id)
         else:
             assignments=assign_controllers(turn,combat_weapons,config);handover=[];guard_ready=False
 
@@ -450,7 +472,7 @@ class CompetitionPlanner:
             )
         )
         shared_control=len({a.controller.unit_id for a in assignments})<len(assignments)
-        needed = len(assignments) if threats or guard_ready else 0
+        needed = len(assignments) if threats or raiders or guard_ready else 0
         active_assignments = assignments[:needed]
         attack_targets = threats
         if not attack_targets and config.allow_cross_map_fire and mode == StrategyMode.SCORE_RACE:
@@ -474,7 +496,7 @@ class CompetitionPlanner:
                 if item in role.backpack:
                     actions.append(Action(role.unit_id,ActionType.USE,name=item,targets=(weapon.pos,)))
                     upgrading.add(role.unit_id);upgraded_targets.add(weapon.unit_id);break
-        actions.extend(plan_attacks(turn,tuple(a for a in active_assignments if a.controller.unit_id not in upgrading),attack_targets))
+        actions.extend(plan_attacks(turn,tuple(a for a in active_assignments if a.controller.unit_id not in upgrading),attack_targets,raiders))
         used_controllers = {action.controller_id for action in actions if action.controller_id is not None} | upgrading
         intents: list[MoveIntent] = list(handover)
         for assignment in active_assignments:
@@ -491,7 +513,7 @@ class CompetitionPlanner:
                     )
                 )
                 used_controllers.add(assignment.controller.unit_id)
-            elif attack_targets or guard_ready:
+            elif attack_targets or raiders or guard_ready:
                 # A controller stays assigned while a relevant threat exists even
                 # before that threat enters range.
                 used_controllers.add(assignment.controller.unit_id)
@@ -547,6 +569,11 @@ class CompetitionPlanner:
             if pioneer is not None:
                 treasure=self.treasure.plan(turn,pioneer,config,budget.offensive,guard_ready=guard_ready)
                 self._merge_advanced(treasure,actions,intents,used_controllers)
+                if want_away and guard_ready and pioneer.unit_id not in used_controllers:
+                    # A temporary route obstruction must not turn a reserved
+                    # dawn expedition into another shopping or task round trip.
+                    intents.append(MoveIntent(pioneer.unit_id,(pioneer.pos,),96))
+                    used_controllers.add(pioneer.unit_id)
                 advanced = self._safe_task_plan(turn, state, llm_budget, config, pioneer) if pioneer.unit_id not in used_controllers and not threats else AdvancedPlan()
                 self._merge_advanced(advanced, actions, intents, used_controllers)
                 if turn.phase_task or advanced.prompt or advanced.execute_command:
@@ -554,12 +581,32 @@ class CompetitionPlanner:
                 if pioneer.unit_id not in used_controllers:
                     treasure = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure, actions, intents, used_controllers)
-            for role in released:
-                if turn.day_index>=config.night_support_day and role.unit_id==self.support_id and role.unit_id not in used_controllers:
-                    support=support_plan(turn,role,config,threats,recent_damage=self.support_damage)
+            claimed=[]
+            for role in sorted(released,key=lambda r:r.unit_id!=self.support_id):
+                final_helper=turn.day_index>=config.final_defense_day and role.unit_id==self.economy.main_miner_id
+                if turn.day_index>=config.night_support_day and (role.unit_id==self.support_id or final_helper) and role.unit_id not in used_controllers:
+                    support=support_plan(turn,role,config,threats,recent_damage=self.support_damage if role.unit_id==self.support_id else 0,claimed=claimed)
                     self.economy.activity[role.unit_id]=support.reason
                     self.economy.evidence[role.unit_id]={"wall_risk":support.evidence}
-                    if threats or support.action or support.reason=="reachable_wall_rescue":
+                    if role.unit_id==self.support_id and support.reason in ('support_hold_protected','support_wait_with_goods'):
+                        # Avoid spending an item on robots already projected to
+                        # die to this turn's rocket salvo. Runtime ordering is
+                        # not assumed; this is only a no-duplicate-spend estimate.
+                        from .combat import _apply_projected_damage
+                        projected={r.robot_id:r.health for r in turn.robots}
+                        for shot in actions:
+                            if shot.action_type==ActionType.ATTACK:
+                                weapon=turn.team_our.unit(shot.actor_id)
+                                if weapon:_apply_projected_damage(weapon,shot.targets,turn.robots,projected)
+                        bomb_turn=replace(turn,robots=tuple(replace(r,health=projected[r.robot_id]) for r in turn.robots))
+                        bomb=self.surplus_bomb.plan(bomb_turn,role,role,budget,config)
+                        if bomb.action:
+                            support=bomb;self.economy.activity[role.unit_id]=bomb.reason
+                    if support.action and support.action.name!='Bomb':claimed.extend(support.action.targets)
+                    elif support.reason=='reachable_wall_rescue' and support.evidence:
+                        wall=turn.team_our.unit(support.evidence[0])
+                        if wall:claimed.append(wall.pos)
+                    if threats or final_helper or support.action or support.reason=="reachable_wall_rescue":
                         self._merge_advanced(support,actions,intents,used_controllers)
             for role in sorted(released,key=lambda r:r.role_type!=ROLE_PIONEER):
                 if role.unit_id in used_controllers:
@@ -577,21 +624,13 @@ class CompetitionPlanner:
                     continue
             if pioneer is not None and pioneer.unit_id not in used_controllers:
                 self._stage_idle_pioneer(turn,pioneer,config,intents,used_controllers)
-            miner=next((r for r in released if r.unit_id==self.economy.main_miner_id and r.unit_id not in used_controllers),None)
-            if miner:
-                prices={i.name:i.price for i in turn.weapon_shop}
-                committed=sum(prices.get(a.name,0)*a.quantity for a in actions if a.action_type==ActionType.BUY)
-                repairing=any(a.actor_id==self.support_id and a.name=='WallFixer' and a.action_type==ActionType.USE for a in actions)
-                bomb=self.surplus_bomb.plan(turn,miner,turn.team_our.unit(self.support_id),budget,config,committed,repairing)
-                if bomb.action or bomb.move:
-                    self.economy.activity[miner.unit_id]=bomb.reason
-                    self._merge_advanced(bomb,actions,intents,used_controllers)
             for worker in released:
                 if worker.role_type == ROLE_WORKER and worker.unit_id not in used_controllers:
                     self._plan_worker_economy(turn, worker, actions, intents, used_controllers, state, config, budget)
 
         danger=danger_cells(turn,config,self.economy.previous_robots)
         protected={a.controller.unit_id for a in active_assignments}|handover_ids|({self.support_id} if threats else set())
+        if turn.day_index>=config.final_defense_day:protected.add(self.economy.main_miner_id)
         for worker in turn.controllable:
             if worker.role_type!=ROLE_WORKER or worker.unit_id in protected:continue
             if worker.pos in danger:

@@ -169,40 +169,43 @@ def bomb_scene():
 
 
 class BombTests(unittest.TestCase):
+    # v0.18 explicitly moves buying from the miner at night to the engineer by day.
     def plan(self,raw,manager=None,**kwargs):
         from solution.surplus_bomb import SurplusBomb
         turn=Turn.from_raw(raw);manager=manager or SurplusBomb()
-        return manager.plan(turn,turn.team_our.unit(7),turn.team_our.unit(1),BUDGET,DEFAULT_CONFIG,**kwargs),manager,turn
+        return manager.plan(turn,turn.team_our.unit(1),turn.team_our.unit(1),BUDGET,DEFAULT_CONFIG,**kwargs),manager,turn
 
-    def test_only_spare_miner_buys_one_then_uses_global_target(self):
-        raw=bomb_scene();plan,m,t=self.plan(raw)
-        self.assertEqual((plan.action.actor_id,plan.action.name,plan.action.quantity),(7,'Bomb',1))
-        m.issued(t,plan.action);raw['roundNo']+=1;unit(raw,7)['backpack']=['Bomb'];t=Turn.from_raw(raw)
-        m.observe(t);self.assertIsNone(m.result['success'])
+    def daytime(self):
+        raw=bomb_scene();raw['roundNo']=700;unit(raw,1)['pos']={'x':10,'y':12}
+        return raw
+
+    def test_engineer_buys_by_day_and_uses_at_night(self):
+        raw=self.daytime();plan,m,t=self.plan(raw)
+        self.assertEqual((plan.action.actor_id,plan.action.name,plan.action.quantity),(1,'Bomb',1))
+        m.issued(t,plan.action);raw['roundNo']=721;unit(raw,1)['backpack']+=['Bomb']
         plan,m,t=self.plan(raw,m);self.assertEqual(plan.action.action_type,'use')
-        self.assertGreater(t.team_our.unit(7).pos.distance_to(plan.action.targets[0]),3)
         from solution.protocol import serialize_decision
         from solution.actions import Decision
         from solution.validation import ActionValidator
         response,issues=serialize_decision(t,Decision((plan.action,)),ActionValidator())
-        self.assertFalse(issues);self.assertEqual(response['roleCommandMap']['7']['name'],'Bomb')
-        m.issued(t,plan.action);raw['roundNo']+=1;unit(raw,7)['backpack']=[]
-        plan,m,t=self.plan(raw,m);self.assertIsNone(plan.action);self.assertEqual(plan.reason,'nightly_bomb_already_used')
+        self.assertFalse(issues);self.assertEqual(response['roleCommandMap']['1']['name'],'Bomb')
+        m.issued(t,plan.action);raw['roundNo']+=1
+        self.assertEqual(self.plan(raw,m)[0].reason,'nightly_bomb_already_used')
 
-    def test_readiness_requires_actual_walls_not_carried_vouchers(self):
-        raw=bomb_scene();turn=Turn.from_raw(raw);wall=next(w for w in turn.team_our.roles if side_wall_a(turn,w))
-        unit(raw,wall.unit_id)['level']=2;unit(raw,1)['backpack']+=['WallUpgradeVoucher2']
-        self.assertEqual(self.plan(raw)[0].reason,'defense_not_ready')
-        raw['teamOur']['roles']=[r for r in raw['teamOur']['roles'] if r['id']!=wall.unit_id]
-        self.assertEqual(self.plan(raw)[0].reason,'defense_not_ready')
+    def test_pending_wall_upgrades_require_carried_stock(self):
+        raw=self.daytime();turn=Turn.from_raw(raw);wall=next(w for w in turn.team_our.roles if side_wall_a(turn,w))
+        unit(raw,wall.unit_id)['level']=2
+        self.assertEqual(self.plan(raw)[0].reason,'wall_supplies_first')
+        unit(raw,1)['backpack']+=['WallUpgradeVoucher2']
+        self.assertEqual(self.plan(raw)[0].action.name,'Bomb')
 
-    def test_fourteen_repairs_or_same_turn_use_blocks_purchase(self):
-        raw=bomb_scene();self.assertEqual(self.plan(raw,repair_committed=True)[0].reason,'repair_stock_first')
-        unit(raw,1)['backpack'].pop();self.assertEqual(self.plan(raw)[0].reason,'repair_stock_first')
+    def test_repairs_and_urgent_action_take_priority(self):
+        raw=self.daytime();self.assertEqual(self.plan(raw,repair_committed=True)[0].reason,'wall_rescue_first')
+        unit(raw,1)['backpack'].pop();self.assertEqual(self.plan(raw)[0].reason,'wall_supplies_first')
 
     def test_no_own_unknown_or_nonlethal_cluster(self):
         for team,health in [('challenger',60),('',60),('unknown',60),('defender',500)]:
-            raw=bomb_scene()
+            raw=bomb_scene();unit(raw,1)['backpack']+=['Bomb']
             for r in raw['robot']['roles']:r.update(targetTeam=team,health=health)
             self.assertEqual(self.plan(raw)[0].reason,'no_profitable_medium_cluster')
 
@@ -215,36 +218,33 @@ class BombTests(unittest.TestCase):
             self.assertIsNotNone(target);self.assertEqual(estimate[0],2)
 
     def test_live_price_budget_and_existing_orders(self):
-        raw=bomb_scene();raw['teamOur']['goldNum']=100
+        raw=self.daytime();raw['teamOur']['goldNum']=100
         self.assertEqual(self.plan(raw,committed=1)[0].reason,'no_surplus_or_capacity')
         raw['weaponShopList'][-1]['price']=101
         self.assertEqual(self.plan(raw)[0].reason,'no_surplus_or_capacity')
 
-    def test_same_night_failed_purchase_is_not_repeated(self):
-        raw=bomb_scene();plan,m,t=self.plan(raw);m.issued(t,plan.action)
-        raw['roundNo']+=1;t=replace(Turn.from_raw(raw),last_action_results={7:False});m.observe(t)
+    def test_failed_purchase_is_not_repeated_same_day(self):
+        raw=self.daytime();plan,m,t=self.plan(raw);m.issued(t,plan.action)
+        raw['roundNo']+=1;t=replace(Turn.from_raw(raw),last_action_results={1:False});m.observe(t)
         self.assertFalse(m.result['success'])
         self.assertEqual(self.plan(raw,m)[0].reason,'bomb_already_purchased_or_carried')
         raw['roundNo']+=130;self.assertEqual(self.plan(raw,m)[0].action.name,'Bomb')
 
-    def test_full_engine_uses_miner_without_stealing_gun_or_support_action(self):
+    def test_full_engine_uses_engineer_without_stealing_gun_action(self):
         from solution.engine import AgentEngine
-        raw=bomb_scene();turn=Turn.from_raw(raw)
+        raw=bomb_scene();raw['roundNo']=732;turn=Turn.from_raw(raw)
         wall=next(w for w in turn.team_our.roles if front_wall_number(turn,w)==3)
-        unit(raw,1)['pos']={'x':wall.pos.x-1,'y':wall.pos.y}
-        # Own wave must keep the pioneer firing while the miner buys remotely.
+        unit(raw,1)['pos']={'x':wall.pos.x-1,'y':wall.pos.y};unit(raw,1)['backpack']+=['Bomb']
+        unit(raw,2)['pos']=unit(world(721),2)['pos']
         raw['robot']['roles'].append({'id':95,'roleType':'smallRobot','pos':{'x':wall.pos.x+3,'y':wall.pos.y},'health':40,'targetTeam':'challenger','attackRange':3})
-        raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':10,'y':4}}]
-        unit(raw,7)['pos']={'x':11,'y':4}
-        unit(raw,2)['pos']=world(721)['teamOur']['roles'][1]['pos']
         engine=AgentEngine();response=engine.decide(raw)['roleCommandMap']
-        self.assertEqual(response['7']['name'],'Bomb')
+        self.assertEqual(response['1']['name'],'Bomb')
         self.assertTrue(any(c.get('action')=='attack' for c in response.values()))
-        self.assertEqual(engine.planner.surplus_bomb.bought_day,6)
+        self.assertNotEqual(response.get('7',{}).get('name'),'Bomb')
 
     def test_diagnostic_recovers_bomb_reason_and_action(self):
         from tools.diagnostics.operation_report import summarize_operations
-        events=[{'event':'turn','r':721,'d':6,'commands':[['7','buy','Bomb',1]],
+        events=[{'event':'turn','r':700,'d':6,'commands':[['1','buy','Bomb',1]],
                  'diagnostics':{'surplusBomb':{'reason':'bomb_purchase'}}}]
         report=summarize_operations(events,day=6)
         self.assertEqual(report['bomb_commands'],{'buy':1})

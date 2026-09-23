@@ -320,6 +320,10 @@ class TreasureKnowledge:
     def departure_due(self, turn, pioneer, config):
         if not self.expedition_ready(turn, pioneer) or not pioneer.pos:
             return False
+        # Reserve the preceding night for the trip, not just the final walking
+        # turns. A blocked route delays the expedition, never cancels its guard.
+        if self.preceding_night(turn,pioneer):
+            return not turn.is_day
         grid, _ = safe_grid(turn, config)
         path = shortest_path(grid, pioneer.pos, interaction_cells(grid, self.position))
         if not path:
@@ -330,6 +334,10 @@ class TreasureKnowledge:
                 return False
             opening = turn.day_index * ROUNDS_PER_DAY + 1
         return opening - turn.round_no <= len(path) - 1 + 2
+
+    def preceding_night(self, turn, pioneer):
+        return bool(not turn.phase_task and self.expedition_ready(turn,pioneer)
+                    and self.phase in ('day','any') and self.opening_day==turn.day_index+1)
 
     def can_attempt(self, turn, pioneer, config):
         return bool(self.expedition_ready(turn, pioneer) and self.window_valid(turn) and pioneer.pos

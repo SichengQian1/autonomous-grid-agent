@@ -97,6 +97,11 @@ class AgentEngine:
                         "bombResult": self.planner.surplus_bomb.result,
                         "stoneReserve": self.planner.economy.reserve_stone,
                         "gunHandover": self.planner.guard.phase,
+                        "gunBackup": self.planner.guard.backup_id,
+                        "openingRaid": self.planner.raid_status,
+                        "supportDecisions": {str(actor):evidence.get('wall_risk',())
+                                             for actor,evidence in self.planner.economy.evidence.items()
+                                             if 'wall_risk' in evidence},
                         "treasureStage": self.planner.treasure.reason,
                         "treasureValidation": self.planner.treasure.last_validation_failure,
                         "treasureRequest": self.planner.treasure.request_id,
@@ -145,22 +150,25 @@ class AgentEngine:
 
     def _weapon_diagnostics(self, turn, response):
         from .defense import own_threats
+        from .combat import raid_targets
         threats = own_threats(turn)
+        raiders,_ = raid_targets(turn,self.config)
         result = []
         for weapon in turn.team_our.roles:
             if not weapon.is_weapon or not weapon.alive or weapon.pos is None:
                 continue
+            candidates=threats+raiders if weapon.level>=3 and weapon.role_type=='rocket' else threats
             if str(weapon.unit_id) in response["roleCommandMap"]:
                 reason = "firing"
             elif turn.is_day:
                 reason = "day"
-            elif not threats:
+            elif not candidates:
                 reason = "clear"
             elif not any(r.pos and r.pos.distance_to(weapon.pos)<=1 for r in turn.controllable):
                 reason = "no_operator"
             elif weapon.cooldown:
                 reason = "cooldown"
-            elif not any(r.pos and r.pos.distance_to(weapon.pos)<=weapon.attack_range for r in threats):
+            elif not any(r.pos and r.pos.distance_to(weapon.pos)<=weapon.attack_range for r in candidates):
                 reason = "out_of_range"
             else:
                 controllers={str(command.get('controllerId')) for command in response['roleCommandMap'].values() if command.get('action')=='attack'}

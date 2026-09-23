@@ -112,7 +112,11 @@ class StrategyConfig:
     pioneer_repair_stock: int = 6
     surplus_repair_day: int = 6
     surplus_repair_stock: int = 15
-    bomb_start_day: int = 6
+    bomb_start_day: int = 5
+    opening_raid_day: int = 3
+    opening_raid_turns: int = 10
+    final_defense_day: int = 10
+    final_helper_repairs: int = 5
     bomb_damage: int = 100
     bomb_minimum_medium_kills: int = 2
     allow_surplus_bomb: bool = True

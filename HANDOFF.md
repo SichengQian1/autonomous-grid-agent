@@ -5,6 +5,95 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.18 opening score race and final-night support (2026-09-24)
+
+Scope: preserve v0.17 task/treasure interpretation and its failure recovery. Add
+an explicitly authorized combat experiment, engineer-owned Bomb stock, a second
+final-night wall helper, and preceding-night treasure travel. No dependencies,
+weapon-composition change, task-solver rewrite, or protocol change.
+
+Evidence:
+- Three local v0.17 decoded matches report six completed tasks and zero failed
+  tasks each. Their actual treasure results are one exhausted result and two
+  successful results at the fifth-day attempt, not the ordering inferred from
+  visual observation. Do not infer a spawn-side effect from these three alone.
+- No Bomb purchases were recorded. The item identifier already was correct;
+  the old miner-only night trip and full fifteen-repair-stock gate blocked it.
+- Final-day turn records contain only the day/night boundaries and settlement;
+  all sixty-turn-night interior observations were lost to the log budget. One
+  match retains its base/front walls at settlement; two lose the base. The exact
+  fatal repair sequence cannot be reconstructed from these logs.
+- A weak non-planned flank is observable before one final night. The old support
+  selector omitted walls outside the upgrade array; a synthetic reproduction
+  confirms this omission. This is not proof of the actual fatal sequence.
+- Old treasure departure counted only the pioneer's path plus two turns; it did
+  not reserve the preceding night for worker arrival, swapping and safe travel.
+
+Implemented:
+- From night three, night turns 1--10 let level-three rockets prioritize visible
+  opponent-targeted small/medium robots. Read actual range/cooldown; preserve one
+  action per controller, within-salvo damage projection, own targets as fallback.
+  Cancel the experiment on base contact or estimated two-turn wall collapse.
+  Unknown robot ownership is not guessed; ordinary cross-map fire stays disabled.
+- Engineer buys Bomb by day from day five after stocking wall upgrades/repairs
+  and after core gun/base readiness. Pending wall vouchers count as stocked;
+  do not use them prematurely to unlock Bomb shopping. Reserve committed and
+  emergency funds, obey capacity and actual shop/return time. No visible robot
+  cluster is required for preparation. Normal nights use at most one Bomb.
+- Day ten reserves the engineer basket and up to five helper repairs, then buys
+  as many Bombs as surplus cash/capacity allow. Final night permits multiple
+  confirmed uses; failed/missing use feedback stops that night's repeats.
+  Urgent healing/routing/retreat always precedes Bomb use. Require at least two
+  projected opponent medium kills, after this turn's planned gun damage; no
+  cross-map movement. Successful item feedback alone does not prove kill credit.
+- Day-ten miner schedules a shop trip for up to five repair packs and returns
+  before night; remaining money after engineer needs determines quantity. It
+  stops mining that night and assists walls. Engineer goes first; the second
+  helper excludes the first's chosen rescue target. Gun replacement takes priority.
+- Repair coverage includes all living walls, not only the planned upgrade array.
+  The array's target levels, upgrade-heal order, damage thresholds, five-stone
+  rebuilding reserve, daytime rebuild rule and exposure retreat remain intact.
+- Known fully supplied next-day daylight treasure reserves the preceding night.
+  The miner approaches during the prior day's return window and must physically
+  confirm the common gun post before departure. The engineer remains wall support.
+  Pioneer walks a safe route, waits next to the site and opens at the first valid
+  turn. A blocked route can delay arrival; it must not force unsafe travel or a
+  new task/shopping detour. Replacement routes also avoid unscreened robots.
+- Reserve 192 KiB within the existing telemetry budget for final-night turn
+  snapshots (default budget). Earlier critical traces cannot spend that reserve.
+  Log dropped-event count, gun backup, raid gate and both support decisions.
+  Add read-only `decode_match_log.py --pioneer [--day N] [--detail-limit N]`:
+  distinguish firing via controllerId, task waits, guarding, window/recall waits,
+  no-command intervals and unknown missing turns. Private match details stay local.
+
+Validation and release:
+- Exact Python 3.11.10 on the local development OS: 422 unittest cases and
+  compileall pass, including sixteen new v0.18 synthetic regressions. Historical
+  Bomb tests were updated for the explicitly changed buyer/daytime policy.
+- Both sides complete 1300-turn synthetic regression with zero invalid responses,
+  dropped/failed actions or planner failures. This simulator does not establish
+  official-engine survival, score or correct treasure semantics.
+- Source and clean archive each pass both-side 71-turn restricted opening HTTP:
+  three weapons, at least ten walls, one controller adjacent to all three; malformed
+  JSON/null/list requests return valid fallback. Existing HTTP smoke passes.
+- Source and archive treasure HTTP traces pass malformed-response recovery,
+  partial procurement, incremental candidate/opening, rejection and decoded logs.
+- Task solver, protocol and validator source files are unchanged. Archive has
+  exactly 41 files: entry point plus 40 runtime Python modules. Existing released
+  archive checksums are unchanged; no logs, fixtures, reference material or caches.
+- Artifact: `submissions/v0/submission-v0.18.tar.gz`.
+- SHA-256: `0582432f3988654fb1a0d9259a456bafc4746e7b412db014b248d3e8bcf5650d`.
+- Pre-existing AGENTS.md edits are retained and excluded from this release.
+  No competition platform upload, match launch, or external model call was made.
+
+Next practice comparisons: own survival and worker deaths before comparing score;
+first-ten-turn own/opponent kills and firing count; Bomb purchase/use/confirmed
+credit; final-night repair targets, supplies and breach timing; treasure guard
+arrival and first eligible opening; six-task correctness and pioneer idle spans.
+The raid window, medium-cluster threshold, exposure estimates and first-dawn
+arrival remain hypotheses. Synthetic coverage does not prove improved match
+income, survival, win rate, or treasure semantics.
+
 ## v0.17 model-led treasure execution (2026-09-23)
 
 Decision: replace v0.16 treasure semantic/lexical validation with platform-model
