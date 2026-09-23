@@ -27,7 +27,7 @@ class V07RegressionTests(unittest.TestCase):
         raw['teamOur']['roles'][0]['backpack']=['StationUpgradeVoucher1']
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':4}
         turn=Turn.from_raw(raw)
-        manager=LogisticsManager(carrier_id=2,started=270,orders=[Delivery('WeaponUpgradeVoucher1',20,1)])
+        manager=LogisticsManager(weapon_buyer_id=1,carrier_id=2,started=270,orders=[Delivery('WeaponUpgradeVoucher1',20,1)])
         result=manager.plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
         self.assertIsNotNone(result.move)
         self.assertEqual(manager.carrier_id,2)
@@ -55,7 +55,7 @@ class V07RegressionTests(unittest.TestCase):
         raw['weaponShopList']=[{'name':'StationUpgradeVoucher1','price':100},
             {'name':'WallUpgradeVoucher1','price':20},{'name':'WallFixer','price':10}]
         turn=Turn.from_raw(raw)
-        result=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,55,12),DEFAULT_CONFIG)
+        result=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,55,12),DEFAULT_CONFIG)
         self.assertIsNone(result.action)
 
 class V07OperatingTests(unittest.TestCase):
@@ -115,7 +115,7 @@ class V07OperatingTests(unittest.TestCase):
         raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':13,'y':5}}]
         raw['weaponShopList']=[{'name':'StationUpgradeVoucher1','price':100},{'name':'WeaponUpgradeVoucher1','price':100}]
         turn=Turn.from_raw(raw)
-        result=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
+        result=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
         self.assertEqual(result.action.name,'WeaponUpgradeVoucher1')
 
     def test_idle_pioneer_stages_near_shop_without_displacing_active_task(self):

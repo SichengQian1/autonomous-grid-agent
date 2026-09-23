@@ -21,17 +21,18 @@ class EconomicOperationsTests(unittest.TestCase):
         raw['teamOur']['roles'][0]['backpack']=['StationUpgradeVoucher1']
         raw['roundNo']=261
         turn=Turn.from_raw(raw)
-        plan=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
+        plan=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,12),DEFAULT_CONFIG)
         self.assertIsNone(plan.action)
         self.assertIsNotNone(plan.move)
 
-    def test_emergency_reserve_can_purchase_critical_wall_repair(self):
-        raw=self.raw(); raw['teamOur']['roles'][0]['pos']={'x':13,'y':5}
-        raw['teamOur']['roles'].append(role(20,'wall',8,8,health=100,level=3))
-        raw['weaponShopList']=[{'name':'WallFixer','price':10}]
-        raw['teamOur']['goldNum']=10
+    def test_engineer_repair_reserve_precedes_optional_tier_three(self):
+        from tests.test_v014_operations import WallSupplyTests
+        from solution.wall_supply import wall_stock_plan
+        raw=WallSupplyTests().scene();raw['teamOur']['goldNum']=10
+        for u in raw['teamOur']['roles']:
+            if u['roleType']=='rocket':u['level']=2
         turn=Turn.from_raw(raw)
-        plan=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,-3),DEFAULT_CONFIG)
+        plan=wall_stock_plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,-3),DEFAULT_CONFIG)
         self.assertEqual((plan.action.name,plan.action.quantity),('WallFixer',1))
 
     def test_malformed_interpretations_are_ignored_without_interrupting_defense(self):
@@ -113,7 +114,7 @@ class EconomicOperationsTests(unittest.TestCase):
                                    role(21,'rocket',4,11,health=1000,level=1,attack_range=10)]
         raw['weaponShopList']=[{'name':'WeaponUpgradeVoucher1','price':100}]
         raw['teamOur']['goldNum']=225
-        manager=LogisticsManager(); budget=DefenseBudget(0,25,200,12)
+        manager=LogisticsManager(weapon_buyer_id=1); budget=DefenseBudget(0,25,200,12)
         turn=Turn.from_raw(raw); plan=manager.plan(turn,turn.team_our.unit(1),budget,replace(DEFAULT_CONFIG,defer_weapon_delivery=False))
         self.assertEqual((plan.action.name,plan.action.quantity),('WeaponUpgradeVoucher1',2))
         raw['teamOur']['roles'][0]['backpack']=['WeaponUpgradeVoucher1']*2

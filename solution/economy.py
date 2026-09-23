@@ -72,9 +72,7 @@ def side_wall_a(turn: Turn, wall: Unit) -> bool:
 
 def wall_level_goal(turn: Turn, wall: Unit) -> int:
     number=front_wall_number(turn,wall)
-    if number in (2,3):return 3
-    if number in (1,4) and turn.day_index>=6:return 3
-    if turn.day_index>=9 and (number in (5,6) or side_wall_a(turn,wall)):return 3
+    if number in (1,2,3,4):return 3
     return 2
 
 
@@ -283,11 +281,12 @@ class EconomyManager:
     previous_robots: dict = field(default_factory=dict)
     returning_roles: set[int] = field(default_factory=set)
     reserve_stone: dict[int, int] = field(default_factory=dict)
+    main_miner_id: int | None = None
 
     def plan(self, turn: Turn, worker: Unit, state: WorldState, config: StrategyConfig, budget: DefenseBudget) -> EconomyPlan:
         if worker.pos is None:
             return EconomyPlan()
-        travel = TravelBudget.for_role(turn,worker,config,must_return=worker.unit_id in self.returning_roles)
+        travel = TravelBudget.for_role(turn,worker,config,must_return=worker.unit_id in self.returning_roles,wall_support=worker.unit_id in self.returning_roles)
         grid,danger=safe_grid(turn,config,self.previous_robots)
         travel.grid=grid
         if travel.daytime:travel.home=distance_field(grid,travel.goals)
@@ -300,9 +299,6 @@ class EconomyManager:
             self.activity[worker.unit_id]='bounded_night_failure_pause'
             return EconomyPlan()
         vendor_goals = tuple(p for v in turn.zone_positions("vendor") for p in interaction_cells(grid,v))
-        if not vendor_goals:
-            self.activity[worker.unit_id]="no_vendor_route"
-            return EconomyPlan()
         home=turn.team_our.station()
         prices={item.name:item.price for item in turn.vendor_shop}
         inventory=resource_inventory(worker)
@@ -328,7 +324,7 @@ class EconomyManager:
             rising=False
         sale_stops=((vendor_goals,max(len(inventory),1)),)
         sale_cost=travel.cost(sale_stops)
-        can_sell=count>0 and travel.fits(sale_stops)
+        can_sell=bool(vendor_goals) and count>0 and sale_cost<10000 and travel.fits(sale_stops)
         sale_rate=value/max(sale_cost,1)
         if not count: self.selling.discard(worker.unit_id)
         previous_pos=self.mines.get(worker.unit_id)
@@ -348,14 +344,32 @@ class EconomyManager:
             remaining=max(0,state.mine_remaining.get(zone.pos,10))
             batch=min(config.mining_batch_size,remaining,capacity)
             sale_actions=len(set(inventory)|{zone.neutral_type})
-            base_cost=travel.cost(((goals,0),(vendor_goals,sale_actions)))
-            if travel.daytime:batch=min(batch,max(0,travel.remaining-travel.margin-base_cost-1))
+            # Value the eventual complete trip, but only require collection and
+            # defensive return to fit today. Selling may wait until a safe window.
+            work_cost=travel.cost(((goals,0),))
+            if work_cost>=10000:continue
+            if travel.daytime:batch=min(batch,max(0,travel.remaining-travel.margin-work_cost-1))
             if batch<=0:continue
-            cost=base_cost+batch
-            if cost>=10000:continue
+            base_cost=travel.cost(((goals,0),(vendor_goals,sale_actions))) if vendor_goals else 10000
+            cost=(work_cost+max(4,len(inventory)+1) if base_cost>=10000 else base_cost)+batch
             rate=(value+price*batch)/max(cost,1)
             if zone.pos in {p for actor,p in self.mines.items() if actor!=worker.unit_id}:rate*=0.8
             ranked.append((rate,zone,goals))
+        # Only the main miner on day two follows a supported future-price
+        # opportunity. Safety, reachable paths and capacity still gate candidates.
+        if turn.day_index==1 and worker.unit_id==self.main_miner_id:
+            income_ores=[entry for entry in ranked if entry[1].neutral_type in ('iron','copper')]
+            if income_ores:ranked=income_ores
+        forecast=set()
+        if turn.day_index==2 and worker.unit_id==self.main_miner_id:
+            for window in state.market.windows:
+                if window.source_day==2 and window.start_day>=3 and window.end_day>=3 and not window.recovery and (window.rising or window.closed or (window.price or 0)>prices.get(window.ore,0)):
+                    forecast.add(window.ore)
+            preferred=[entry for entry in ranked if entry[1].neutral_type in forecast]
+            if preferred:
+                ranked=preferred
+                self.evidence[worker.unit_id]['day_two_forecast']=sorted(forecast)
+                self.evidence[worker.unit_id]['forecast_basis']='current_news_price_or_supply_window_not_guaranteed_sale_price'
         best=max(ranked,key=lambda item:(item[0],-item[1].pos.x,-item[1].pos.y),default=None)
         should_sell=can_sell and (worker.unit_id in self.selling or backpack_full(worker)
             or (not rising and (count>=config.mining_batch_size or worker.pos in vendor_goals or urgent_cash
@@ -405,7 +419,7 @@ class EconomyManager:
         previous=next((item for item in ranked if item[1].pos==previous_pos),None)
         if previous is not None and previous[0]*1.2>=best[0]:best=previous
         rate,zone,goals=best;self.mines[worker.unit_id]=zone.pos
-        self.evidence[worker.unit_id].update(rate=round(rate,3),target=[zone.pos.x,zone.pos.y],ore=zone.neutral_type,held=hoarding,route="safe_full_trip")
+        self.evidence[worker.unit_id].update(rate=round(rate,3),target=[zone.pos.x,zone.pos.y],ore=zone.neutral_type,held=hoarding,route="safe_collection_then_sale",vendor_reachable=bool(vendor_goals),return_cost=travel.cost(((goals,1),)))
         if worker.pos.distance_to(zone.pos)<=1:
             self.activity[worker.unit_id]="collect_"+zone.neutral_type
             return EconomyPlan(action=Action(worker.unit_id,ActionType.COLLECT,targets=(zone.pos,)))

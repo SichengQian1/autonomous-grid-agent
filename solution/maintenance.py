@@ -11,7 +11,9 @@ from .combat import ROBOT_ATTACK
 
 def support_plan(turn,role,config,threats):
     if not role.pos:return LogisticsPlan()
+    from .wall_supply import wall_use_item, wall_target
     walls=front_walls(turn);due=due_defense_targets(turn,config)
+    walls += [w for w in turn.team_our.roles if w.role_type=="wall" and w.alive and wall_target(turn,w)>1 and w not in walls]
     walls+= [w for w in due if w.role_type=='wall' and w not in walls]
     layout=build_defense_layout(turn)
     grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
@@ -29,18 +31,16 @@ def support_plan(turn,role,config,threats):
         goals=interaction_cells(grid,wall.pos)
         path=shortest_path(grid,role.pos,goals) if role.pos.distance_to(wall.pos)>1 else [role.pos]
         steps=max(0,len(path)-1) if path else 10000
+        item=wall_use_item(turn,wall,role,config,approaching,steps)
         threshold=max(int(estimated_max_health(wall)*config.wall_heal_fraction),approaching*(steps+2))
-        if wall.health>threshold and wall not in due:continue
-        goal=max(wall_level_goal(turn,wall),3 if wall in scheduled_targets(turn,config) and front_wall_number(turn,wall) in (1,2,3,4) else 2)
-        item=upgrade_item(wall) if wall.level<goal else ''
-        if item not in role.backpack:item='WallFixer' if 'WallFixer' in role.backpack else ''
+        if not item and wall.health>threshold:continue
         headroom=wall.health/max(immediate,approaching,1)
         risks.append((headroom,wall.health,steps,wall,item,goals,approaching))
     endangered=False
     for _,_,steps,wall,item,goals,incoming in sorted(risks,key=lambda x:x[:3]):
         if item:
             if role.pos.distance_to(wall.pos)<=1:
-                return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=item,targets=(wall.pos,)),reason="due_or_low_health_use",evidence=(wall.unit_id,wall.health,steps,incoming,item))
+                return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=item,targets=(wall.pos,)),reason="wall_upgrade_heal" if item.startswith("WallUpgrade") else "wall_low_health_repair",evidence=(wall.unit_id,wall.health,steps,incoming,item))
             if steps<10000 and wall.health>incoming*(steps+1):
                 return LogisticsPlan(move=MoveIntent(role.unit_id,goals,122),reason="reachable_wall_rescue",evidence=(wall.unit_id,wall.health,steps,incoming,item))
         endangered |= wall.health<=max(int(estimated_max_health(wall)*config.wall_retreat_fraction),incoming*2)

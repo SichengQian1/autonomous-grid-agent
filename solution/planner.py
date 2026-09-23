@@ -31,6 +31,7 @@ from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
 from .travel import TravelBudget
 from .maintenance import support_plan
+from .wall_supply import wall_stock_plan
 from .roles import GuardHandover, wall_goods
 from .route_safety import danger_cells, escape_intent
 from .tasking import AdvancedPlan, TaskManager, TreasureKnowledge, parse_structured_llm
@@ -58,6 +59,7 @@ class CompetitionPlanner:
     support_id: int | None = None
     guard: GuardHandover = field(default_factory=GuardHandover)
     failure_count: int = 0
+    wall_supply_status: dict = field(default_factory=dict)
 
     def plan(
         self,
@@ -102,15 +104,17 @@ class CompetitionPlanner:
         elif self.treasure_prompt_pending and turn.round_no-self.treasure_prompt_round > config.task_response_wait:
             self.treasure_prompt_pending = False
         workers=[r for r in turn.controllable if r.role_type==ROLE_WORKER and r.pos]
-        current=next((r for r in workers if r.unit_id==self.support_id),None)
-        stocked=max(workers,key=lambda r:(wall_goods(r),r.unit_id==self.engineer_id,-min((r.pos.distance_to(p) for p in build_defense_layout(turn).weapon_sites[:3]),default=0),-r.unit_id),default=None)
-        if current is None or (stocked and wall_goods(stocked)>0 and wall_goods(current)==0):
-            self.support_id=stocked.unit_id if stocked else None
+        if workers and self.engineer_id not in {w.unit_id for w in workers}:
+            sites=build_defense_layout(turn).weapon_sites[:3]
+            self.engineer_id=min(workers,key=lambda w:(-wall_goods(w),min((w.pos.distance_to(p) for p in sites),default=0),w.unit_id)).unit_id
+        self.support_id=self.engineer_id if workers else None
         self.logistics.support_id=self.support_id
+        pioneer=next((r for r in turn.controllable if r.role_type==ROLE_PIONEER),None)
+        self.logistics.weapon_buyer_id=(self.guard.backup_id if self.guard.away or pioneer is None else pioneer.unit_id)
+        self.economy.main_miner_id=next((w.unit_id for w in workers if w.unit_id!=self.engineer_id),None)
         self.economy.returning_roles={self.support_id} if turn.day_index>=config.night_support_day else set()
-        self.economy.returning_roles.update(r.unit_id for r in workers if any(i.startswith('WeaponUpgradeVoucher') for i in r.backpack))
-        missing_walls=max(0,len(build_defense_layout(turn).wall_sites)-len(existing_walls(turn)))
-        self.economy.reserve_stone={self.engineer_id:min(missing_walls,config.stone_batch_size)}
+        self.economy.reserve_stone={self.engineer_id:config.engineer_stone_reserve}
+        self.wall_supply_status={}
         self.economy.activity.clear()
         self.economy.evidence.clear()
         self.opponent.update(turn, state.generation)
@@ -141,6 +145,16 @@ class CompetitionPlanner:
             decision = self._basic_defense(turn, threats)
         if deadline_reached():
             return self._basic_defense(turn, threats)
+        # Shared money must also be consistent in the proposed joint plan, not
+        # merely dropped later by the protocol validator.
+        cash=turn.team_our.gold;prices={i.name:i.price for i in turn.weapon_shop};funded=[]
+        for action in decision.actions:
+            cost=prices.get(action.name,0)*(action.quantity or 0) if action.action_type==ActionType.BUY else config.weapon_build_cost if action.action_type==ActionType.BUILD and action.name!='wall' else 0
+            if cost>cash:
+                self.economy.activity[action.actor_id]='purchase_deferred_shared_cash'
+                continue
+            cash-=cost;funded.append(action)
+        decision=replace(decision,actions=tuple(funded))
         self.economy.previous_robots={r.robot_id:r.pos for r in turn.robots if r.pos}
         return decision
 
@@ -182,6 +196,13 @@ class CompetitionPlanner:
                 backup=turn.team_our.unit(self.guard.backup_id)
                 intents.append(MoveIntent(backup.unit_id,(backup.pos,),125,yield_cells=()))
                 used.add(backup.unit_id)
+        support=next((w for w in workers if w.unit_id==self.support_id and w.unit_id not in used),None)
+        if support and len(existing_walls(turn))>=len(layout.wall_sites) and len(existing_weapons(turn))>=3:
+            stock=wall_stock_plan(turn,support,budget,config)
+            self.wall_supply_status={"reason":stock.reason,"needs_and_route":stock.evidence}
+            self.economy.activity[support.unit_id]=stock.reason
+            self.economy.evidence[support.unit_id]={"supply":stock.evidence}
+            self._merge_advanced(stock,actions,intents,used)
         recall_intents = self._individual_recall(turn, state, config, self.support_id)
         if guard_ready:
             recall_intents=[i for i in recall_intents if i.actor_id!=pioneer.unit_id]
@@ -189,7 +210,7 @@ class CompetitionPlanner:
         # A return reservation must not suppress a one-turn adjacent delivery.
         for intent in tuple(recall_intents):
             role=turn.team_our.unit(intent.actor_id)
-            if TravelBudget.for_role(turn,role,config).cost()+1 >= turn.rounds_until_night:
+            if TravelBudget.for_role(turn,role,config).cost()+1 > turn.rounds_until_night:
                 continue
             maintenance=plan_upgrade_or_repair(turn,role,budget,config,allow_move=False,owned_only=True)
             if maintenance.action is not None:
@@ -199,15 +220,6 @@ class CompetitionPlanner:
         intents.extend(recall_intents)
         used.update(i.actor_id for i in recall_intents)
         if len(used) < len(turn.controllable):
-            # Deliver carried goods before assigning the engineer another mining trip.
-            for worker in workers:
-                if worker.unit_id in used:
-                    continue
-                if self.logistics.carrier_id == worker.unit_id or any(
-                    item == "WallFixer" or "UpgradeVoucher" in item for item in worker.backpack
-                ):
-                    delivery = self.logistics.plan(turn, worker, budget, config)
-                    self._merge_advanced(delivery, actions, intents, used)
             objectives = weapon_build_objectives(turn, layout, state, config)
             builders = [worker for worker in workers if worker.unit_id == self.engineer_id and worker.unit_id not in used]
             objectives = sorted(objectives, key=lambda o: min((w.pos.distance_to(o.site) for w in builders), default=0))
@@ -262,7 +274,9 @@ class CompetitionPlanner:
                 self.stone_batch_goal = min(self.stone_batch_goal, max(0, wall_target-wall_count))
                 if stones >= self.stone_batch_goal:
                     self.stone_batch_goal = 0
-                if wall_count < wall_target and self.stone_batch_goal:
+                replenishing=wall_count>=wall_target and stones<config.engineer_stone_reserve
+                if replenishing:self.stone_batch_goal=config.engineer_stone_reserve
+                if (wall_count < wall_target or replenishing) and self.stone_batch_goal:
                     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
                     distances = distance_field(grid, (worker.pos,))
                     stone_zones = [z for z in turn.map_info.zones if z.neutral_type == "stone" and z.pos is not None
@@ -309,15 +323,11 @@ class CompetitionPlanner:
                         )
                     used.add(worker.unit_id)
 
-            support=next((r for r in workers if r.unit_id==self.support_id and r.unit_id not in used),None)
-            if support:
-                stock=plan_repair_stock(turn,support,budget,config)
-                self._merge_advanced(stock,actions,intents,used)
             advanced = AdvancedPlan()
             if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task:
                 treasure_plan=self.treasure.plan(turn,pioneer,config,budget.offensive,guard_ready=guard_ready)
                 self._merge_advanced(treasure_plan,actions,intents,used)
-            if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task and turn.day_index>=2:
+            if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task and (turn.day_index>=2 or turn.rounds_until_night<=config.procurement_lead_rounds):
                 purchase=self.logistics.plan(turn,pioneer,budget,config)
                 self._merge_advanced(purchase,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used:
@@ -360,6 +370,8 @@ class CompetitionPlanner:
             for worker in sorted(workers,key=lambda w:shop_dist.get(w.pos,10000)):
                 if worker.unit_id not in used:
                     logistics = plan_repair_stock(turn,worker,budget,config) if worker.unit_id==self.support_id else AdvancedPlan()
+                    if worker.unit_id==self.support_id:
+                        self.wall_supply_status={"reason":getattr(logistics,"reason",""),"needs_and_route":getattr(logistics,"evidence",())}
                     if logistics.action is None and logistics.move is None:
                         logistics = self.logistics.plan(turn, worker, budget, config)
                     if logistics.action is not None:
@@ -441,7 +453,7 @@ class CompetitionPlanner:
         upgrading=set(handover_ids);upgraded_targets=set()
         min_level=min((w.level for w in weapons),default=3)
         for role in turn.controllable:
-            if role.unit_id in handover_ids:continue
+            if role.unit_id in handover_ids or (role.role_type!=ROLE_PIONEER and role.unit_id not in {a.controller.unit_id for a in active_assignments}):continue
             adjacent=sorted((w for w in weapons if role.pos and w.pos and role.pos.distance_to(w.pos)<=1 and w.level==min_level and w.level<3 and w.unit_id not in upgraded_targets),key=lambda w:w.unit_id)
             for weapon in adjacent:
                 item=f'WeaponUpgradeVoucher{weapon.level}'
@@ -529,14 +541,16 @@ class CompetitionPlanner:
                     treasure = self.treasure.plan(turn, pioneer, config, budget.offensive)
                     self._merge_advanced(treasure, actions, intents, used_controllers)
             for role in released:
-                if turn.day_index>=config.night_support_day and threats and role.unit_id==self.support_id and role.unit_id not in used_controllers:
+                if turn.day_index>=config.night_support_day and role.unit_id==self.support_id and role.unit_id not in used_controllers:
                     support=support_plan(turn,role,config,threats)
                     self.economy.activity[role.unit_id]=support.reason
                     self.economy.evidence[role.unit_id]={"wall_risk":support.evidence}
-                    self._merge_advanced(support,actions,intents,used_controllers)
+                    if threats or support.action or support.reason=="reachable_wall_rescue":
+                        self._merge_advanced(support,actions,intents,used_controllers)
             for role in sorted(released,key=lambda r:r.role_type!=ROLE_PIONEER):
                 if role.unit_id in used_controllers:
                     continue
+                if role.role_type==ROLE_WORKER:continue
                 maintenance = (plan_upgrade_or_repair(turn, role, budget, config, allow_move=False, critical_only=True)
                                if threats else self.logistics.plan(turn, role, budget, config))
                 if maintenance.action is not None:
@@ -713,19 +727,20 @@ class CompetitionPlanner:
         station = turn.team_our.station()
         if station is not None:
             home = tuple(dict.fromkeys(p for cell in station.footprint() for p in interaction_cells(grid,cell)))
-            intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config).goals or home,110) for role in turn.controllable
-                           if role.unit_id not in assigned and role.pos is not None and ((turn.day_index>=config.night_support_day and role.unit_id==support_id) or role.role_type!=ROLE_WORKER or any(i.startswith('WeaponUpgradeVoucher') for i in role.backpack)))
+            intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config,wall_support=role.unit_id==support_id).goals or home,110) for role in turn.controllable
+                           if role.unit_id not in assigned and role.pos is not None and ((turn.day_index>=config.night_support_day and role.unit_id==support_id) or role.role_type!=ROLE_WORKER))
         result = []
         for intent in intents:
             role = turn.team_our.unit(intent.actor_id)
-            travel=TravelBudget.for_role(turn,role,config)
+            travel=TravelBudget.for_role(turn,role,config,wall_support=role.unit_id==support_id)
             distance=travel.cost()
+            upgrade_actions=sum(min(role.backpack.count(f"WeaponUpgradeVoucher{level}"),sum(w.level==level for w in existing_weapons(turn))) for level in (1,2)) if role.role_type==ROLE_PIONEER else 0
             if not intent.goals:
                 intent = replace(intent, goals=(role.pos,))
             # Static shortest paths omit queued humans and walls built en route.
             # Reserve a separate traffic allowance without recalling other roles.
             if (state.recall_day == turn.day_index or intent.actor_id in state.recalled_roles
-                    or distance+travel.margin >= turn.rounds_until_night):
+                    or distance+travel.margin+upgrade_actions >= turn.rounds_until_night):
                 state.recalled_roles[intent.actor_id] = turn.day_index
                 result.append(intent)
         return result

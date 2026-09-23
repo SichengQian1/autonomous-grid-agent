@@ -83,9 +83,17 @@ class LogisticsManager:
     stage: str = "idle"
     retry_after: dict[int, int] = field(default_factory=dict)
     support_id: int | None = None
+    weapon_buyer_id: int | None = None
 
     def plan(self, turn: Turn, role: Unit, budget: DefenseBudget, config: StrategyConfig) -> LogisticsPlan:
         if role.pos is None:
+            return LogisticsPlan()
+        if role.role_type=='worker' and role.unit_id!=self.weapon_buyer_id:
+            # Worker responsibility is wall supply; normal weapon/base shopping
+            # belongs to the pioneer. An explicitly designated backup may buy.
+            if role.unit_id==self.support_id:
+                from .wall_supply import wall_stock_plan
+                return wall_stock_plan(turn,role,budget,config)
             return LogisticsPlan()
         if self.carrier_id is not None:
             carrier = turn.team_our.unit(self.carrier_id)
@@ -110,7 +118,7 @@ class LogisticsManager:
         ahead = scheduled_targets(turn,config)
         ahead_ids = {u.unit_id for u in ahead}
         ahead_first = ahead[0].unit_id if ahead else None
-        options=[o for o in options if o[1].role_type!=ROLE_WALL or self.support_id is None or role.unit_id==self.support_id or o[0] in role.backpack or (critically_damaged(o[1]) and distance(o[1])==0)]
+        options=[o for o in options if o[1].role_type!=ROLE_WALL]
         first_rocket = any(u.role_type == ROLE_ROCKET and u.level >= 2 and u.alive for u in turn.team_our.roles)
         if not first_rocket:
             # Fund the first power increase before buying optional small items.
@@ -176,7 +184,7 @@ class LogisticsManager:
         if config.defer_weapon_delivery and turn.is_day and any(o.item.startswith('WeaponUpgradeVoucher') and o.item in role.backpack for o in self.orders):
             held=next(o for o in self.orders if o.item.startswith('WeaponUpgradeVoucher') and o.item in role.backpack)
             target=turn.team_our.unit(held.target_id)
-            if target and distance(target)==0:
+            if target and distance(target)==0 and turn.rounds_until_night<=max(4,len(role.backpack)):
                 self.orders=[];self.carrier_id=None;self.stage='use_on_route'
                 return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=held.item,targets=(target.pos,)))
             self.orders=[];self.carrier_id=None;self.stage='carry_until_recall'
@@ -320,8 +328,10 @@ def plan_upgrade_or_repair(
     for name, target, priority in options:
         if name not in role.backpack:
             continue
-        if target.role_type==ROLE_WALL and target.unit_id not in due_ids and target.health>estimated_max_health(target)*config.wall_heal_fraction:
-            continue
+        if role.role_type=='worker' and target.is_weapon:continue
+        if target.role_type==ROLE_WALL:
+            from .wall_supply import wall_use_item
+            if name!=wall_use_item(turn,target,role,config):continue
         if role.pos.distance_to(target.pos) <= 1:
             return LogisticsPlan(
                 action=Action(role.unit_id, ActionType.USE, name=name, targets=(target.pos,))
@@ -337,7 +347,7 @@ def plan_upgrade_or_repair(
     affordable = next(
         (
             name for name, _target, _priority in options
-            if name in shop_items and 0 < shop_items[name] <= budget.offensive
+            if (role.role_type!='worker' and _target.role_type!=ROLE_WALL) and name in shop_items and 0 < shop_items[name] <= budget.offensive
             and not any(name in unit.backpack for unit in turn.controllable)
         ),
         None,
@@ -361,22 +371,6 @@ def plan_upgrade_or_repair(
 
 
 def plan_repair_stock(turn: Turn, role: Unit, budget: DefenseBudget, config: StrategyConfig) -> LogisticsPlan:
-    """Stock on the actual support worker; items cannot be assumed transferable."""
-    if not turn.is_day or turn.day_index < config.repair_stock_day or role.role_type != 'worker' or not role.pos:
-        return LogisticsPlan()
-    if due_defense_targets(turn,config): return LogisticsPlan()
-    missing = max(0, config.pioneer_repair_stock - role.backpack.count('WallFixer'))
-    capacity = max(0,role.backpack_capacity-len(role.backpack))
-    prices = {i.name:i.price for i in turn.weapon_shop}
-    price = prices.get('WallFixer',0)
-    target = next_development_target(turn,config)
-    item = upgrade_item(target)
-    reserve = prices.get(item,0) if item and not any(item in r.backpack for r in turn.controllable) else 0
-    quantity = min(missing,capacity,max(0,budget.offensive-reserve)//price) if price > 0 else 0
-    if quantity <= 0: return LogisticsPlan()
-    grid = OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
-    goals = tuple(p for shop in turn.zone_positions('weaponShop') for p in interaction_cells(grid,shop))
-    if not goals or not TravelBudget.for_role(turn,role,config).fits([(goals,1)]): return LogisticsPlan()
-    if role.pos in goals:
-        return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name='WallFixer',quantity=quantity))
-    return LogisticsPlan(move=MoveIntent(role.unit_id,goals,86))
+    """Compatibility entry point for timed engineer procurement."""
+    from .wall_supply import wall_stock_plan
+    return wall_stock_plan(turn,role,budget,config)

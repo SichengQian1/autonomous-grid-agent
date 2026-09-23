@@ -21,7 +21,7 @@ class TravelBudget:
     goals: tuple[Pos,...] = ()
 
     @classmethod
-    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig, *, must_return=True):
+    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig, *, must_return=True, wall_support=False):
         grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
         weapons=tuple(u for u in turn.team_our.roles if u.is_weapon and u.alive)
         assignment=next((a for a in assign_controllers(turn,weapons,config) if a.controller.unit_id==role.unit_id),None)
@@ -32,7 +32,7 @@ class TravelBudget:
             goals=tuple(p for cell in station.footprint() for p in interaction_cells(grid,cell)) if station else (role.pos,)
             held=next((w for w in weapons if w.level<3 and f'WeaponUpgradeVoucher{w.level}' in role.backpack),None)
             if held is not None:goals=interaction_cells(grid,held.pos)
-            elif station and turn.day_index>=config.night_support_day and any(i=='WallFixer' or i.startswith('WallUpgradeVoucher') for i in role.backpack):
+            elif station and turn.day_index>=config.night_support_day and (wall_support or any(i=='WallFixer' or i.startswith('WallUpgradeVoucher') for i in role.backpack)):
                 cells=turn.coordinate_frame.normalize_cells(station.footprint())
                 post=turn.coordinate_frame.denormalize(Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+1))
                 if grid.passable(post):goals=(post,)

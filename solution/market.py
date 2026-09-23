@@ -35,8 +35,10 @@ class MarketMemory:
         aliases = {"stone": r"stone|石[矿头]", "iron": r"iron|铁", "copper": r"copper|铜"}
         numerals = {c:str(i) for i,c in enumerate("一二三四五六七八九十",1)}
         text = re.sub(r"第([一二三四五六七八九十])[天日]",lambda m:"第"+numerals[m[1]]+"天",text)
-        for sentence in re.split(r"[。；;\n]", text[:8000]):
+        context_ores=[ore for ore,pattern in aliases.items() if re.search(pattern,text,re.I)]
+        for sentence in re.split(r"[。；;\n]|(?<!\d)\.(?!\d)", text[:8000]):
             ores = [ore for ore, pattern in aliases.items() if re.search(pattern, sentence, re.I)]
+            if not ores and len(context_ores)==1 and re.search(r"矿|开采|停采|停工|采掘|extraction|mine|mining",sentence,re.I):ores=context_ores
             if len(ores) != 1:
                 continue
             span = re.search(r"第\s*(\d+)\s*[天日]\s*(?:至|到|[-~—])\s*第?\s*(\d+)\s*[天日]", sentence)
@@ -55,7 +57,7 @@ class MarketMemory:
                 days = int(numerals.get(duration[1],duration[1]))
                 end = start+days-1
             price_match = re.search(r"(?:价格|售价|卖价|收购价|price)\s*(?:调整为|提高到|涨至|降至|为|[:=]|to|is)?\s*(\d+)(?![\d.])", sentence, re.I)
-            closed = bool(re.search(r"关闭|封闭|停采|暂停开采|禁止采集|\bclosed\b", sentence, re.I))
+            closed = bool(re.search(r"关闭|封闭|停采|暂停开采|禁止采集|停工|\bclosed\b", sentence, re.I))
             rising = bool(re.search(r"涨价|上涨|上调|走高|\brise\b|\bincrease\b",sentence,re.I))
             recovery=bool(re.search(r"恢复|重新开放|reopen|restore|resume",sentence,re.I))
             if recovery and not span and not duration:end=10
@@ -109,6 +111,7 @@ class MarketMemory:
             if type(start) is not int or type(end) is not int or not source_day<=start<=end<=min(10,source_day+4): continue
             if not isinstance(confidence,(int,float)) or not math.isfinite(confidence) or confidence<0.95: continue
             closed,rising=entry.get("closed") is True,entry.get("rising") is True
+            if closed and entry.get("recovery") is True:continue
             price=entry.get("price")
             # Exact price forecasts need the literal number in the cited text.
             if type(price) is not int or not 0<price<10000 or str(price) not in quote: price=None

@@ -50,20 +50,14 @@ class V06Regressions(unittest.TestCase):
         manager=EconomyManager();p=manager.plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,12))
         self.assertTrue(manager.activity[1].startswith('sell'))
 
-    def test_day_two_front_wall_upgrade_is_planned_before_it_is_critical(self):
+    def test_day_two_worker_does_not_start_wall_upgrade_shopping(self):
         raw=developed();raw['roundNo']=160;raw['teamOur']['goldNum']=100
         raw['teamOur']['roles'][0]['pos']={'x':12,'y':5}
-        raw['teamOur']['roles'][3]['level']=2
-        # Once the basic guns/base are funded, proactive front walls get spare cash.
-        for u in raw['teamOur']['roles']:
-            if u['roleType'] in ('rocket','railgun'):u['level']=2
-        raw['teamOur']['roles'].append(role(60,'wall',8,10,health=900,level=1))
         raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':13,'y':5}}]
-        raw['weaponShopList']=[{'name':'WallUpgradeVoucher1','price':20},{'name':'WeaponUpgradeVoucher1','price':100}]
+        raw['weaponShopList']=[{'name':'WallUpgradeVoucher1','price':20}]
         turn=Turn.from_raw(raw)
-        result=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
-        self.assertIsNotNone(result.action)
-        self.assertEqual(result.action.name,'WallUpgradeVoucher1')
+        result=LogisticsManager(support_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
+        self.assertIsNone(result.action);self.assertIsNone(result.move)
 
 class TaskWorkspaceIntegration(unittest.TestCase):
     def test_discover_fail_repair_check_and_submit_in_random_workspace(self):

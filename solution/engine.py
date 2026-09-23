@@ -90,6 +90,8 @@ class AgentEngine:
                     diagnostics={
                         "operationLogDropped": self.operations.dropped,
                         "supportWorker": self.planner.support_id,
+                        "wallSupply": self.planner.wall_supply_status,
+                        "stoneReserve": self.planner.economy.reserve_stone,
                         "gunHandover": self.planner.guard.phase,
                         "treasureStage": self.planner.treasure.reason,
                         "taskLogDropped": self.planner.tasks.audit.dropped,

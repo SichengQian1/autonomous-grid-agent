@@ -48,7 +48,7 @@ def assign_controllers(turn: Turn, weapons: tuple[Unit, ...], config=DEFAULT_CON
             pioneer=next((r for r in available if r.role_type=='pioneer'),None)
             present=next((r for r in available if r.pos==post),None)
             reachable=[r for r in available if distances.get(r.pos,10000)<10000]
-            selected=present or (pioneer if pioneer in reachable else None) or min(reachable,key=lambda r:(distances[r.pos],r.unit_id),default=None)
+            selected=(pioneer if pioneer in reachable else None) or present or min(reachable,key=lambda r:(distances[r.pos],r.unit_id),default=None)
             if selected:
                 return tuple(ControllerAssignment(w,selected,post) for w in weapons)
     if config.shared_rocket_control and len(weapons)==3 and all(w.role_type==ROLE_ROCKET for w in weapons) and len(available)>=2:

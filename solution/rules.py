@@ -109,7 +109,10 @@ class StrategyConfig:
     first_core_wall_day: int = 5
     both_core_walls_day: int = 6
     repair_stock_day: int = 5
-    pioneer_repair_stock: int = 2
+    pioneer_repair_stock: int = 6
+    engineer_stone_reserve: int = 5
+    wall_stock_early: int = 2
+    wall_repair_min_damage: float = 0.30
     wall_heal_fraction: float = 0.40
     wall_retreat_fraction: float = 0.20
     defer_weapon_delivery: bool = True

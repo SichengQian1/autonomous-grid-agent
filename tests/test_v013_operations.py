@@ -166,16 +166,17 @@ class MiningSafetyTests(unittest.TestCase):
         self.assertTrue(m.closed('iron',2));self.assertFalse(m.closed('iron',3));self.assertFalse(m.closed('iron',4))
 
 class DeadlineTests(unittest.TestCase):
-    def test_side_a_and_ninth_day_targets(self):
+    def test_side_a_and_late_day_fixed_array(self):
         from solution.economy import side_wall_a,wall_level_goal
         for side in ('challenger','defender'):
             raw=world(651,side);t=Turn.from_raw(raw)
             sidewall=next(w for w in t.team_our.roles if w.role_type=='wall' and side_wall_a(t,w))
             self.assertEqual(wall_level_goal(t,sidewall),2)
             t=replace(t,round_no=1041)
-            self.assertEqual(wall_level_goal(t,sidewall),3)
+            self.assertEqual(wall_level_goal(t,sidewall),2)
             for w in t.team_our.roles:
-                if front_wall_number(t,w) in (1,2,3,4,5,6):self.assertEqual(wall_level_goal(t,w),3)
+                if front_wall_number(t,w) in (1,2,3,4):self.assertEqual(wall_level_goal(t,w),3)
+                if front_wall_number(t,w) in (5,6):self.assertEqual(wall_level_goal(t,w),2)
     def test_future_deadline_is_visible_during_previous_day(self):
         from solution.economy import scheduled_targets
         t=Turn.from_raw(world(430))
@@ -194,6 +195,7 @@ class ProcurementPriorityTests(unittest.TestCase):
         from solution.logistics import LogisticsManager
         raw=world(430);raw['teamOur']['goldNum']=130
         raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':{'x':10,'y':13}}]
+        next(u for u in raw['teamOur']['roles'] if u['id']==1)['roleType']='pioneer'
         t=Turn.from_raw(raw)
         p=LogisticsManager().plan(t,t.team_our.unit(1),DefenseBudget(0,0,130,12),DEFAULT_CONFIG)
         self.assertEqual(p.action.name,'StationUpgradeVoucher1')

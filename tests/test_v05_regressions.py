@@ -63,17 +63,13 @@ class V05RegressionTests(unittest.TestCase):
         self.assertEqual(result['1']['action'],'build')
         self.assertEqual(result['2']['action'],'move')
 
-    def test_engineer_delivers_carried_repair_in_daytime(self):
-        raw=developed(); raw['roundNo']=261
+    def test_engineer_preserves_carried_repair_for_night(self):
+        raw=developed();raw['roundNo']=261
         raw['teamOur']['roles'][0]['backpack']=['WallFixer']
         raw['teamOur']['roles'][0]['pos']={'x':7,'y':10}
         raw['teamOur']['roles'].append(role(40,'wall',8,10,health=50,level=1))
-        engine=AgentEngine(); engine.state.ingest(Turn.from_raw(raw))
-        engine.planner.last_generation=engine.state.generation; engine.planner.engineer_id=1
-        engine.planner.logistics=LogisticsManager(carrier_id=1,orders=[Delivery('WallFixer',40,1)],started=250)
-        result=engine.decide(raw)['roleCommandMap']
-        self.assertEqual(result['1']['action'],'use')
-        self.assertEqual(result['1']['name'],'WallFixer')
+        engine=AgentEngine();result=engine.decide(raw)['roleCommandMap']
+        self.assertFalse(any(c.get('action')=='use' and c.get('name')=='WallFixer' for c in result.values()))
 
     def test_local_cd_and_multiline_solver_are_accepted(self):
         self.assertTrue(safe_task_command("cd /tmp/selfEvolutionTask && python3 check.py"))
@@ -141,16 +137,16 @@ class V05RegressionTests(unittest.TestCase):
         raw['weaponShopList']=[{'name':'WallFixer','price':10},{'name':'WallUpgradeVoucher1','price':20},
                                {'name':'WeaponUpgradeVoucher1','price':100}]
         turn=Turn.from_raw(raw)
-        result=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,65,12),DEFAULT_CONFIG)
+        result=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,65,12),DEFAULT_CONFIG)
         self.assertIsNone(result.action)
 
         raw['teamOur']['goldNum']=100
         turn=Turn.from_raw(raw)
-        funded=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
+        funded=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG)
         self.assertEqual(funded.action.name,'WeaponUpgradeVoucher1')
 
         raw['teamOur']['goldNum']=90
         raw['teamOur']['roles'][-1]['health']=50
         turn=Turn.from_raw(raw)
-        urgent=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,65,12),DEFAULT_CONFIG)
-        self.assertEqual(urgent.action.name,'WallFixer')
+        urgent=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,65,12),DEFAULT_CONFIG)
+        self.assertIsNone(urgent.action)  # Gun operator no longer owns wall procurement.

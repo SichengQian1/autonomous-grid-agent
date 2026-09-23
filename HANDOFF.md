@@ -5,6 +5,87 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.14 operating fixes (2026-09-23)
+
+Observed in two local v0.13 matches:
+- Both completed all six self-evolution tasks at full credit. Task solving and
+  submission modules, treasure logic and encrypted-log codec remain unchanged.
+- Ordinary workers bought/delivered weapon vouchers. The engineer sometimes spent
+  most of a day with no production: the economy required the entire collection,
+  sale and defensive-return trip to fit today, or rejected work when no safe
+  vendor interaction cell existed at night.
+- Repair and upgrade eligibility were conflated: a due upgrade could cause repair
+  of a healthy wall; one report contains consecutive full-health repairs.
+  Two-item repair stock was exhausted despite available gold. Missing walls then
+  competed with earlier-priority shopping, and the stone reserve had fallen to zero.
+
+Implemented policy:
+- The pioneer normally owns weapon procurement and upgrades near nighttime use.
+  Ordinary workers no longer deliver weapon vouchers or inherit the common gun
+  post merely by standing there. Genuine replacement handovers remain supported.
+  Recall budgets include upgrade actions; the last daytime action may perform an
+  adjacent upgrade. Three guns still advance through all level two before three.
+- One stable engineer owns construction, wall shopping and nighttime support.
+  Existing construction comes before shopping. Five stones remain unsold, with
+  replenishment after use. Missing walls are rebuilt and re-enter the upgrade plan.
+- Mining can finish a safe partial work trip today and sell later. A blocked vendor
+  does not forbid safe collection. Main-miner opening preference is iron/copper
+  when safely reachable. Only on day two, that miner prefers ore with a current
+  official-news price/supply-window basis; the engineer keeps route-value ranking.
+  Upcoming stoppage is a scarcity inference, not a promised sale price. No fixed
+  ore/third-day price is embedded; existing holding/capacity exceptions remain.
+- Wall procurement is timed from actual shop/return paths and purchase actions,
+  with one mining batch of lead time. Demand subtracts actual levels and carried
+  items, including destroyed positions. A complete level-one array needs seven
+  first-tier and four second-tier vouchers, not that many every day.
+- Night three/four prepare repair stock of two; from day five the carried target
+  is six, cash/capacity/route permitting. Preserve basic gun and due base funds;
+  the later repair reserve takes priority over optional higher gun development.
+- Wall upgrades/repairs occur at night. Low-health upgrades take precedence over
+  repair. Repair additionally requires material damage (default at least 30%);
+  upgrade deadlines cannot authorize a repair. Travel and conservative incoming
+  damage estimates can trigger earlier intervention; impossible rescue retreats.
+  Prior-night closing actions complete due levels even without healing need.
+- Final maintained array is front 1–4 level three, 5/6 and side A level two. This
+  round's fixed-array instruction replaces automatic day-nine upgrades of the
+  latter walls. Base level two and one core wall level three remain due by night
+  five; the complete array remains due by night six, subject to actual resources.
+- Operation event sampling preserves budget; turn records retain wall supply,
+  stone reserve and activity. `--operations --day N --role ID` now also summarizes
+  production/idle causes and a bounded maintenance timeline from turn records.
+- Shared purchases are checked against remaining joint cash before validation.
+  Public fixtures are synthetic. Old tests requiring worker weapon delivery,
+  daytime wall use or pioneer wall buying now assert the approved ownership policy.
+  Preserve the pre-existing `AGENTS.md` change; it is not part of this release.
+
+Verification (local Python 3.14.6; exact target 3.11.10 unavailable):
+- `make test PYTHON=python`: 358 tests and compileall passed, including both
+  1,300-turn synthetic replays and unchanged task/treasure regressions.
+- New tests cover both-side two-day task-income/weapon cycles without worker
+  weapon purchases, timed wall procurement/night upgrades through the full array,
+  five-stone preservation/rebuilding, partial mining, news scope and repair gates.
+  The two-day synthetic cycles reach three level-two rockets before night two.
+- Source and clean-archive HTTP checks passed on both sides, malformed JSON and
+  71-turn independently restricted construction included: three guns, 12/15 walls,
+  one seated operator. Maximum measured response in these checks: 47.0 ms.
+- All 39 runtime modules parse with Python 3.11 AST syntax. The archive's 40 files
+  are the entrypoint and those modules; byte-for-byte source comparison passed.
+  No dependencies added. Exact target-runtime execution remains unverified.
+- Existing compressed decoded logs still decode without errors; bounded day/role
+  diagnostics passed. Public diff/file-list and archive review exclude official
+  materials, original logs, credentials and private paths.
+- Artifact: `submissions/v0/submission-v0.14.tar.gz`
+- SHA-256: `52f14205f85dd96bae34c567fd286cefae00298846f8c9be398e89aed6b65343`
+- Base revision: `e24f8293e9d1dca1aed751e2879f824697633a92`; release on `codex/v0`.
+- Private incident/verification notes: `local/analysis/v014/` (not published).
+
+Next real-match checks: worker productive/idle turns and deaths, weapon purchaser
+and upgrade turns, engineer stone balance and missing-wall recovery time, repair
+stock before night five, health at each use, full array before night six, actual
+ore proceeds, task six-of-six outcomes and survival. Damage estimates are not
+engine target predictions; six repairs and these thresholds do not prove ten-night
+survival. Synthetic success is not evidence of improved real score or win rate.
+
 ## v0.13 operating candidate (2026-09-23)
 
 - Normalized rockets occupy 14/15/16, with one pioneer at the common post behind
@@ -86,7 +167,7 @@ Assumptions for the next platform sample:
 
 - Target Python 3.11.10 with standard-library runtime code.
 - Optimize match win rate under a zero-exception safety constraint.
-- v0.13 primary weapon experiment: three rocket launchers with one shared pioneer operator.
+- v0.14 primary weapon experiment: three rocket launchers with one shared pioneer operator.
 - First comparison: two railguns and one rocket launcher.
 - Treat task score and income as primary differentiators when defensive readiness
   remains safe.

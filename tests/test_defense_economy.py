@@ -156,18 +156,14 @@ class ConstructionAndBudgetTests(unittest.TestCase):
         self.assertIsNone(blocked.action)
         self.assertIsNotNone(allowed.action)
 
-    def test_wall_repair_item_can_be_bought_from_runtime_shop(self) -> None:
-        raw = synthetic_turn(round_no=20)
-        raw["phaseTask"] = ""
-        raw["teamOur"]["goldNum"] = 100
-        raw["weaponShopList"].append({"name": "WallFixer", "price": 10})
-        raw["teamOur"]["roles"].append(role(40, "wall", 6, 6, health=400, level=1))
-        pioneer = next(item for item in raw["teamOur"]["roles"] if item["roleType"] == "pioneer")
-        pioneer["pos"] = {"x": 7, "y": 6}
-        turn = Turn.from_raw(raw)
-        budget = type(defense_budget(turn, DEFAULT_CONFIG))(0, 0, 100, 10)
-        plan = plan_upgrade_or_repair(turn, turn.team_our.unit(2), budget)
-        self.assertEqual(plan.action.name, "WallFixer")
+    def test_wall_repair_item_is_purchased_by_support_worker(self):
+        from tests.test_v014_operations import WallSupplyTests
+        from solution.wall_supply import wall_stock_plan
+        raw=WallSupplyTests().scene();raw['teamOur']['goldNum']=42
+        next(i for i in raw['weaponShopList'] if i['name']=='WallFixer')['price']=7
+        turn=Turn.from_raw(raw)
+        plan=wall_stock_plan(turn,turn.team_our.unit(1),defense_budget(turn,DEFAULT_CONFIG),DEFAULT_CONFIG)
+        self.assertEqual((plan.action.name,plan.action.quantity),('WallFixer',6))
 
     def test_upgrade_value_counts_full_heal_and_rocket_level_three_breakpoint(self) -> None:
         raw = synthetic_turn(round_no=131)

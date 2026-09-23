@@ -267,7 +267,7 @@ class RocketOperationsTests(unittest.TestCase):
         from solution.logistics import LogisticsManager
         from solution.economy import defense_budget
         raw=self.scene(round_no=20);raw['teamOur']['roles'][1].update(pos={'x':1,'y':1},backpack=['WeaponUpgradeVoucher1'])
-        turn=Turn.from_raw(raw);manager=LogisticsManager()
+        turn=Turn.from_raw(raw);manager=LogisticsManager(weapon_buyer_id=2)
         plan=manager.plan(turn,turn.team_our.unit(2),defense_budget(turn,DEFAULT_CONFIG),DEFAULT_CONFIG)
         self.assertIsNone(plan.move);self.assertEqual(manager.stage,'carry_until_recall')
 
@@ -363,14 +363,14 @@ class CacheAndBoundaryTests(unittest.TestCase):
             missing=run_procedure(dict(kind='repair',base=root,edits=[],check=['./missing-check']))
             failed=run_procedure(dict(kind='repair',base=root,edits=[],check=['python3','-c','print(\'{"success":false}\')']))
             self.assertEqual(missing['status'],'FileNotFoundError');self.assertEqual(failed['status'],'checker_reported_failure')
-    def test_early_free_worker_with_weapon_voucher_is_recalled(self):
+    def test_idle_worker_is_not_recalled_just_for_weapon_voucher(self):
         from solution.planner import CompetitionPlanner
         from solution.state import WorldState
         raw=RocketOperationsTests().scene(round_no=69)
         raw['teamOur']['roles'][1].update(pos={'x':1,'y':1},backpack=['WeaponUpgradeVoucher1'])
         turn=Turn.from_raw(raw);state=WorldState();state.ingest(turn)
         intents=CompetitionPlanner._individual_recall(turn,state,DEFAULT_CONFIG)
-        self.assertIn(2,{i.actor_id for i in intents})
+        self.assertNotIn(2,{i.actor_id for i in intents})
 
 class ProjectRootRecoveryTests(unittest.TestCase):
     def test_checker_location_corrects_document_cwd_before_patch_and_launch(self):

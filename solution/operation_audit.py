@@ -76,15 +76,24 @@ class OperationAudit:
                 if role.unit_id==planner.engineer_id and turn.is_day:duty='engineer'
                 data={'duty':duty,'activity':planner.economy.activity.get(role.unit_id),
                       'mining':planner.economy.evidence.get(role.unit_id,{}),'goods':[i for i in role.backpack if 'Voucher' in i or i=='WallFixer']}
-                self.emit(turn,'role',data,role.unit_id)
+                command=response['roleCommandMap'].get(str(role.unit_id),{})
+                important=command.get('action') in ('buy','use','build','sell')
+                if important or turn.round_no%8==1 or self.previous_keys.get(('duty',role.unit_id))!=(duty,data['activity']):
+                    self.emit(turn,'role',data,role.unit_id)
+                self.previous_keys[('duty',role.unit_id)]=(duty,data['activity'])
             from .economy import due_defense_targets,scheduled_targets,upgrade_item
             from .rules import DEFAULT_CONFIG
             config=getattr(planner,'audit_config',DEFAULT_CONFIG)
             targets=due_defense_targets(turn,config);ahead=scheduled_targets(turn,config)
             prices={i.name:i.price for i in turn.weapon_shop}
-            self.emit(turn,'upgrade_plan',{'due':[{'id':w.unit_id,'level':w.level,'health':w.health,'item':upgrade_item(w),'deadline_night':turn.day_index} for w in targets],
-                'ahead':[w.unit_id for w in ahead],'gold':turn.team_our.gold,'gap':max(0,sum(prices.get(upgrade_item(w),0) for w in targets)-turn.team_our.gold),
-                'carrier':planner.logistics.carrier_id,'stage':planner.logistics.stage})
+            changed=any(c.get('action') in ('buy','use','build','sell') for c in response['roleCommandMap'].values())
+            target_key=tuple((w.unit_id,w.level) for w in targets)
+            if changed or turn.round_no%8==1 or self.previous_keys.get(('targets',))!=target_key:
+                self.emit(turn,'wall_supply',getattr(planner,'wall_supply_status',{}),planner.support_id)
+                self.emit(turn,'upgrade_plan',{'due':[{'id':w.unit_id,'level':w.level,'health':w.health,'item':upgrade_item(w),'deadline_night':turn.day_index} for w in targets],
+                    'ahead':[w.unit_id for w in ahead],'gold':turn.team_our.gold,'gap':max(0,sum(prices.get(upgrade_item(w),0) for w in targets)-turn.team_our.gold),
+                    'carrier':planner.logistics.carrier_id,'stage':planner.logistics.stage})
+            self.previous_keys[('targets',)]=target_key
             self.previous={'r':turn.round_no,'gold':turn.team_our.gold,'commands':response['roleCommandMap'],
                            'vendor':{i.name:i.price for i in turn.vendor_shop},'shop':prices}
         except Exception:self.dropped+=1

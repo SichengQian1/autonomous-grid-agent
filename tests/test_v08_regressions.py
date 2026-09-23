@@ -199,22 +199,24 @@ class DevelopmentTests(unittest.TestCase):
         raw['teamOur']['roles'].append(role(60, 'wall', 8, 10, health=700, level=2))
         turn = Turn.from_raw(raw)
         self.assertEqual(next_development_target(turn, DEFAULT_CONFIG).role_type, 'rocket')
-        plan = LogisticsManager().plan(turn, turn.team_our.unit(1),
+        plan = LogisticsManager(weapon_buyer_id=1).plan(turn, turn.team_our.unit(1),
             DefenseBudget(0,25,95,12), DEFAULT_CONFIG)
         self.assertIsNone(plan.action)
 
-    def test_critical_repair_can_interrupt_rocket_savings(self):
-        raw = self.ready(); raw['teamOur']['goldNum'] = 10
-        raw['teamOur']['roles'].append(role(60, 'wall', 8, 10, health=100, level=3))
-        turn = Turn.from_raw(raw)
-        plan = LogisticsManager().plan(turn, turn.team_our.unit(1),
-            DefenseBudget(0,25,0,-3), DEFAULT_CONFIG)
-        self.assertEqual(plan.action.name, 'WallFixer')
+    def test_engineer_repair_reserve_precedes_optional_tier_three(self):
+        from tests.test_v014_operations import WallSupplyTests
+        from solution.wall_supply import wall_stock_plan
+        raw=WallSupplyTests().scene();raw['teamOur']['goldNum']=10
+        for u in raw['teamOur']['roles']:
+            if u['roleType']=='rocket':u['level']=2
+        turn=Turn.from_raw(raw)
+        plan=wall_stock_plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,0,-3),DEFAULT_CONFIG)
+        self.assertEqual((plan.action.name,plan.action.quantity),('WallFixer',1))
 
     def test_current_price_funds_third_level_purchase(self):
         raw=self.ready();raw['teamOur']['goldNum']=175
         turn=Turn.from_raw(raw)
-        plan=LogisticsManager().plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,150,12),DEFAULT_CONFIG)
+        plan=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,150,12),DEFAULT_CONFIG)
         self.assertEqual(plan.action.name,'WeaponUpgradeVoucher2')
 
     def test_remaining_weapons_precede_key_walls(self):

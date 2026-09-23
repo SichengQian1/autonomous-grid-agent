@@ -66,14 +66,12 @@ class MilestoneTests(unittest.TestCase):
         raw['roundNo']=651
         self.assertIn(next_development_target(Turn.from_raw(raw),DEFAULT_CONFIG).unit_id,(22,23))
 
-    def test_owned_milestone_wall_is_used_while_healthy(self):
-        raw=defense_raw();raw['teamOur']['roles'][2]['level']=2
+    def test_owned_milestone_wall_is_used_at_night_while_healthy(self):
+        from solution.maintenance import support_plan
+        raw=defense_raw(591);raw['teamOur']['roles'][2]['level']=2
         raw['teamOur']['roles'][0]['backpack']=['WallUpgradeVoucher2']
-        t=Turn.from_raw(raw)
-        p=LogisticsManager().plan(t,t.team_our.unit(1),DefenseBudget(0,25,375,12),DEFAULT_CONFIG)
-        self.assertIsNotNone(p.action)
-        self.assertEqual(p.action.name,'WallUpgradeVoucher2')
-
+        t=Turn.from_raw(raw);p=support_plan(t,t.team_our.unit(1),DEFAULT_CONFIG,())
+        self.assertIsNotNone(p.action);self.assertEqual(p.action.name,'WallUpgradeVoucher2')
 
 class MaintenanceTests(unittest.TestCase):
     def test_numbering_and_deadlines_are_side_normalized(self):
@@ -90,7 +88,7 @@ class MaintenanceTests(unittest.TestCase):
             self.assertEqual(front_wall_number(first,first.team_our.unit(20+number)),number)
             self.assertEqual(front_wall_number(other,other.team_our.unit(20+number)),number)
 
-    def test_wall_one_uses_repair_before_its_level_three_stage(self):
+    def test_wall_one_prefers_upgrade_heal_in_final_array(self):
         from solution.maintenance import support_plan
         raw=defense_raw(461)
         raw['teamOur']['roles'][0].update(pos={'x':7,'y':16},backpack=['WallUpgradeVoucher2','WallFixer'])
@@ -98,7 +96,7 @@ class MaintenanceTests(unittest.TestCase):
             if u['id']==21:u['health']=100
             if u['id']==23:u['health']=350
         t=Turn.from_raw(raw);p=support_plan(t,t.team_our.unit(1),DEFAULT_CONFIG,())
-        self.assertEqual(p.action.name,'WallFixer')
+        self.assertEqual(p.action.name,'WallUpgradeVoucher2')
         self.assertEqual(p.action.targets[0],t.team_our.unit(21).pos)
 
     def test_damage_risk_can_trigger_heal_above_fixed_threshold(self):
@@ -112,15 +110,14 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(p.action.name,'WallUpgradeVoucher2')
         self.assertEqual(p.action.targets[0],t.team_our.unit(23).pos)
 
-    def test_support_worker_stocks_two_without_spending_weapon_reserve(self):
+    def test_support_worker_stocks_six_without_spending_basic_weapon_reserve(self):
+        from tests.test_v014_operations import WallSupplyTests,unit
         from solution.logistics import plan_repair_stock
-        raw=defense_raw();raw['teamOur']['roles'][2]['level']=2
-        raw['teamOur']['roles'][1]['roleType']='worker'
-        next(u for u in raw['teamOur']['roles'] if u['id']==23)['level']=3
-        t=Turn.from_raw(raw)
-        p=plan_repair_stock(t,t.team_our.unit(2),DefenseBudget(0,25,170,12),DEFAULT_CONFIG)
-        self.assertEqual((p.action.name,p.action.quantity),('WallFixer',2))
-        self.assertIsNone(plan_repair_stock(t,t.team_our.unit(2),DefenseBudget(0,25,150,12),DEFAULT_CONFIG).action)
+        raw=WallSupplyTests().scene();raw['teamOur']['goldNum']=160;unit(raw,10)['level']=1
+        t=Turn.from_raw(raw);p=plan_repair_stock(t,t.team_our.unit(1),DefenseBudget(0,25,135,12),DEFAULT_CONFIG)
+        self.assertEqual((p.action.name,p.action.quantity),('WallFixer',6))
+        raw['teamOur']['goldNum']=100;t=Turn.from_raw(raw)
+        self.assertIsNone(plan_repair_stock(t,t.team_our.unit(1),DefenseBudget(0,25,75,12),DEFAULT_CONFIG).action)
 
     def test_healthy_carried_wall_voucher_does_not_block_purchase(self):
         raw=defense_raw(270);raw['teamOur']['roles'][1]['backpack']=['WallUpgradeVoucher1']
@@ -137,7 +134,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(p.action.name,'StationUpgradeVoucher1')
 
 class DeliveryCycleTests(unittest.TestCase):
-    def test_funded_base_and_core_wall_delivery_finishes_before_night(self):
+    def test_pioneer_base_delivery_finishes_without_purchasing_worker_wall_items(self):
         from solution.movement import schedule_moves
         raw=defense_raw();raw['teamOur']['goldNum']=180
         for unit in raw['teamOur']['roles']:
@@ -166,10 +163,10 @@ class DeliveryCycleTests(unittest.TestCase):
                     actor['backpack'].remove(action.name);target['level']+=1
                     target['health']=3000 if target['roleType']=='station' else 1000+500*(target['level']-1)
             station=raw['teamOur']['roles'][2]
-            if station['level']>=2 and any(u['id'] in (22,23) and u['level']>=3 for u in raw['teamOur']['roles']):break
+            if station['level']>=2:break
         self.assertLess(r,591,actions)
         self.assertEqual(station['level'],2,actions)
-        self.assertTrue(any(u['id'] in (22,23) and u['level']==3 for u in raw['teamOur']['roles']),actions)
+        self.assertFalse(any(name.startswith('Wall') for _,_,name in actions),actions)
         self.assertFalse(any(name=='WeaponUpgradeVoucher2' for _,_,name in actions),actions)
 
 if __name__=='__main__':unittest.main()
