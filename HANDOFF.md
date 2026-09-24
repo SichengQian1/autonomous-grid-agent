@@ -5,6 +5,85 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.20 rear shutters and sale-before-wall-supply cycles (2026-09-24)
+
+Scope: user-approved two-cell rear closure, worker passage/resealing, seven-stone
+reserve target, final-night helper access, and timed ore liquidation before wall
+purchases. Base branch was codex/v0 at add159e7e6121ef75eccf2614ef1395e7f18c48e.
+Preserve the user's uncommitted AGENTS.md additions; they are excluded from release.
+
+Evidence and rule correction:
+- The two supplied v0.19 logs have six full self-evolution completions each and no
+  recorded protocol/planner failures. One contains visible enemy-worker occupancy
+  inside the repair corridor. The other retains substantial copper through two
+  daytime procurement cycles, then sells it late during a repair shortage.
+- Logs do not establish uninterrupted enemy occupancy or every cause of base loss.
+  Decoded events, bounded findings and baseline synthetic reproductions stay local.
+- USER_OBSERVED: opposing workers cannot remove our walls. The old validator's
+  permissive visible-wall target check was not evidence to the contrary. Outgoing
+  demolition now accepts owned walls only.
+
+Implementation:
+- After the ordinary ring and the three canonical rockets are ready, from day
+  three add level-one shutters immediately below/left-below cannon 14. The common
+  cannon-15 post stays open. Ordinary walls still count separately toward ring
+  completion; shutters do not enlarge the wall-upgrade target array.
+- GateAccess uses observed wall/role positions for remove, cross and reseal. Every
+  step consumes its own turn; rebuilding consumes one stone. Both workers may
+  approach together but crossings are serialized, including the day-ten helper.
+  Nearby visible enemies suppress opening; occupied cells suppress building;
+  stalled transactions are bounded. Initial closure avoids trapping roles that
+  cannot reopen it. Existing controller/task assignments remain protected.
+- Normal passages reserve daylight through closure. Actual emergency retreat
+  still takes precedence; a night emergency opening cannot be rebuilt until day.
+  Closed shutters block rear human entry; they do not expel an existing intruder
+  or make the walls indestructible to robots.
+- Engineer and final helper target seven retained stones. An empty-handed returning
+  worker obtains a resealing stone before recall treats the closed passage as
+  unreachable; earlier days also budget a next-morning exit stone. A full backpack
+  sells non-stone ore first when that vendor/stone/return trip fits. Stock targets
+  remain limited by available resources, capacity and real travel time.
+- Third-day initial repair procurement remains available early. Later daytime
+  procurement starts from the full vendor, sales, shop actions and return route,
+  including shutter work and a separate final-helper queue margin. Sell carried
+  copper and iron before wall purchases; keep stone and consumable items.
+- A started supply trip stays committed through sale, purchase and return. If
+  unfunded, wait only within the return budget; do not restart mining midway.
+  Third-day early funding gaps can release the worker back to productive work.
+  Count split repair purchases separately; merge a fully funded same-item basket
+  into one action once upgrade needs are covered. Keep minimum repairs, unfinished
+  guns, due base upgrades, planned wall stock and helper reserves in priority order.
+- Completed engineering supply can still buy an optional Bomb at the same shop
+  under the existing budget/return rules. Task solvers, treasure model interaction,
+  weapon composition, target selection and HTTP handling are unchanged.
+- Diagnostics add gate phase/actor, active supply actors and a small visible-human
+  snapshot even when ordinary turn detail is compacted, inside existing log caps.
+
+Release checks (local exact Python 3.11.10):
+- All 457 unittest cases and compileall pass, including eighteen new synthetic
+  regressions for gate geometry, both-side passage, helper queuing, occupied/failing
+  gates, empty/full helper inventory, sale order, procurement persistence and timing.
+- The full suite includes 1,300-turn runs on both sides: no invalid responses,
+  dropped actions, simulated action failures or planner exceptions. These are
+  regressions, not an official simulator or proof of ten-day match survival.
+- Source and clean archive each pass both-side 71-turn constrained-building HTTP
+  checks: three rockets, at least ten walls and one operator covering all three.
+  Malformed JSON, null and array requests return the safe response.
+- Source and archive pass both-side day-six/day-ten sale/supply/entry HTTP cycles
+  (eight 46-turn sequences), matching direct decisions with legal simulated actions.
+- Existing treasure HTTP recovery, deferred purchase, incremental information,
+  opening, platform rejection and encrypted-log decoding checks pass unchanged.
+- Exact public file list/diff, archive allowlist and privacy checks reviewed;
+  private logs/reference material and the user's AGENTS.md edit stay excluded.
+
+Artifact: submissions/v0/submission-v0.20.tar.gz.
+SHA-256: 8e91c1f2a772c56d4c7470524dbca1be754116fd8755ff2a859489f065dbae8a.
+Package contains main3.py plus 41 solution modules, and no logs, reference material,
+tests, documents or caches. Eighteen prior release archive hashes remain unchanged.
+No platform upload, match launch or real model call. Not tested on target CentOS.
+There is no v0.20 practice evidence; compare actual dusk stocks, gate delays, worker
+survival, repair uses, base survival and score before claiming an improvement.
+
 ## v0.19 income continuity, dusk return and persistent development (2026-09-24)
 
 Scope: address the reviewed income, upgrade and support failures while preserving

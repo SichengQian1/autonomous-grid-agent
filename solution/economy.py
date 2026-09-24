@@ -17,6 +17,7 @@ from .actions import Action, ActionType
 from .movement import MoveIntent
 from .travel import TravelBudget
 from .defense import own_threats, build_defense_layout
+from .wall_access import planning_grid, return_distances, gate_sites, inside
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,12 +202,14 @@ def wall_build_objective(
 ) -> BuildObjective | None:
     if worker.backpack.count("stone") <= 0 or len(existing_walls(turn)) >= config.max_wall_count:
         return None
+    if worker.backpack.count('stone')<=1 and inside(turn,worker.pos) and any(w.pos in gate_sites(turn,config) for w in existing_walls(turn)):
+        return None
     standing = {wall.pos for wall in existing_walls(turn)}
     occupied = {
         cell for unit in turn.team_our.roles + turn.team_enemy.roles for cell in unit.footprint()
     }
     reserved = reserved_sites or set()
-    grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
+    grid = planning_grid(turn,worker,config)
     distances = distance_field(grid,(worker.pos,)) if worker.pos is not None else {}
     station = turn.team_our.station()
     front = max((layout.frame.normalize(p).x for p in station.footprint()),default=0)+2 if station else 0
@@ -223,18 +226,19 @@ def wall_build_objective(
             and site not in state.failed_build_sites
             and site not in reserved
             and any(p in distances for p in interaction_cells(grid,site))
-            and wall_preserves_access(turn, layout, site, reserved)
+            and wall_preserves_access(turn, layout, site, reserved,config)
         ):
             return BuildObjective(ROLE_WALL, site, 70 - index)
     return None
 
 
-def wall_preserves_access(turn: Turn, layout: DefenseLayout, site: Pos, reserved: set[Pos]) -> bool:
+def wall_preserves_access(turn: Turn, layout: DefenseLayout, site: Pos, reserved: set[Pos],config=None) -> bool:
     """Reject a wall that seals a control cell or a living role into a pocket."""
     if layout.rear_exit is None:
         return False
     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
     blocked = grid.blocked | set(layout.weapon_sites[:3]) | reserved | {site}
+    if config:blocked-=set(gate_sites(turn,config))
     reachable = distance_field(OccupancyGrid(grid.width, grid.height, frozenset(blocked)), (layout.rear_exit,))
     required = list(layout.controller_sites)
     required.extend(r.pos for r in turn.controllable if r.pos is not None and r.pos not in blocked)
@@ -299,8 +303,9 @@ class EconomyManager:
         travel = TravelBudget.for_role(turn,worker,config,wall_support=worker.unit_id in self.returning_roles,
                                        worker_refuge=worker.unit_id not in self.returning_roles)
         grid,danger=safe_grid(turn,config,self.previous_robots)
+        grid=planning_grid(turn,worker,config,grid)
         travel.grid=grid
-        if travel.daytime:travel.home=distance_field(grid,travel.goals)
+        if travel.daytime:travel.home=return_distances(turn,grid,travel.goals,config)
         threats=tuple(r for r in turn.robots if r.health>0) if not turn.is_day else ()
         self.evidence[worker.unit_id]={'danger_cells':len(danger),'return_required':travel.daytime,'day_three_release':turn.day_index==3}
         if worker.pos in danger:

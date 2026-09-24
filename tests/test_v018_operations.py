@@ -116,7 +116,7 @@ class IntegratedTests(unittest.TestCase):
 
     def test_helper_stock_live_price_and_engineer_reservation(self):
         from solution.wall_supply import final_helper_stock
-        raw=bomb_scene();raw['roundNo']=1220;raw['teamOur']['goldNum']=35
+        raw=bomb_scene();raw['roundNo']=1215;raw['teamOur']['goldNum']=35
         unit(raw,7)['pos']={'x':11,'y':12}
         t=Turn.from_raw(raw);p=final_helper_stock(t,t.team_our.unit(7),t.team_our.unit(1),BUDGET,DEFAULT_CONFIG)
         self.assertEqual(p.action.quantity,3)

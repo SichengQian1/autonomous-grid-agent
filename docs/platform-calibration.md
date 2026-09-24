@@ -153,3 +153,24 @@ unknown, and a score checkpoint without base health cannot establish survival.
 Fail the current hypothesis if return safety repeatedly blocks profitable feasible
 trips, stock shopping prevents essential construction, or continued rescue increases
 worker deaths. Synthetic checks validate scheduling and protocol only.
+
+
+## v0.20 rear passage and wall liquidity
+
+Two returned v0.19 logs contain full self-evolution task completion and no recorded
+protocol/planner errors. One records an enemy worker inside the repair corridor;
+the other records non-stone ore held through multiple days while repair supplies
+and cash were depleted. These observations support access control and a timed
+sale-before-procurement cycle, not a complete causal account of base destruction.
+
+`USER_OBSERVED`: opposing workers cannot remove our walls. v0.20 restricts removal
+to owned walls and closes two rear access cells. Normal worker access includes
+separate opening, crossing and resealing actions before night. A temporarily open
+passage or a robot-destroyed wall is a different state from a closed barrier.
+
+Evaluate both sides: closure before enemy arrival, time spent waiting for access,
+worker position and wall inventory at dusk, ore converted before wall purchases,
+real repair uses, base survival and score. Repeated late arrivals, stranded workers
+or persistent repair shortages despite available sale income would contradict the
+current scheduling assumptions. Unit tests and synthetic HTTP cycles do not measure
+these match outcomes. No v0.20 platform result is available at release.

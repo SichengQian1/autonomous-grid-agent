@@ -158,7 +158,7 @@ class SyntheticWorld:
         for actor_id, command in commands.items():
             actor = by_id.get(actor_id)
             action = command.get("action")
-            if actor is not None and action in {'move','build','use','collect'} and command.get('targetPos'):
+            if actor is not None and action in {'move','build','use','collect','remove'} and command.get('targetPos'):
                 target = command['targetPos'][0]
                 valid = (adjacent(actor['pos'],target) and 0<=target['x']<self.map_width and 0<=target['y']<self.map_height)
                 if action in {'move','build'}: valid = valid and xy(target) not in occupied
@@ -168,9 +168,16 @@ class SyntheticWorld:
                     continue
             if actor is not None and action == "move":
                 actor["pos"] = dict(command["targetPos"][0])
+            elif actor is not None and action == 'remove':
+                target=next((u for u in self.roles if u['roleType']=='wall' and u['pos']==command['targetPos'][0]),None)
+                if actor['roleType']!='worker' or target is None:self.feedback[actor_id]=False
+                else:self.roles.remove(target)
             elif actor is not None and action == "build":
                 name = command.get("name")
                 target = command["targetPos"][0]
+                if (self.round_no-1)%130>=70 or actor['roleType']!='worker':
+                    self.feedback[actor_id]=False
+                    continue
                 anchor = next(r["pos"] for r in self.roles if r["roleType"]=="station")
                 distance = min(max(abs(target["x"]-x),abs(target["y"]-y))
                                for x in (anchor["x"],anchor["x"]+1)

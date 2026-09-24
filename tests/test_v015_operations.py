@@ -225,7 +225,8 @@ class BombTests(unittest.TestCase):
         self.assertEqual(self.plan(raw)[0].reason,'no_surplus_or_capacity')
 
     def test_failed_purchase_is_not_repeated_same_day(self):
-        raw=self.daytime();plan,m,t=self.plan(raw);m.issued(t,plan.action)
+        raw=self.daytime();raw['roundNo']=690  # Leave time for the rear shutter cycle.
+        plan,m,t=self.plan(raw);m.issued(t,plan.action)
         raw['roundNo']+=1;t=replace(Turn.from_raw(raw),last_action_results={1:False});m.observe(t)
         self.assertFalse(m.result['success'])
         self.assertEqual(self.plan(raw,m)[0].reason,'bomb_already_purchased_or_carried')

@@ -153,7 +153,7 @@ class MiningAndOwnershipTests(unittest.TestCase):
    inside=t.coordinate_frame.denormalize(replace(t.coordinate_frame.normalize(w.pos),x=t.coordinate_frame.normalize(w.pos).x-1))
    unit(raw,1)['pos']=inside.to_raw();unit(raw,1)['backpack']=['stone']*5+['WallFixer']*6
    engine=AgentEngine();out=engine.decide(raw)['roleCommandMap'];self.assertEqual(engine.planner.engineer_id,1)
-   self.assertEqual(out['1']['action'],'build');self.assertEqual(out['1']['targetPos'],[w.pos.to_raw()]);self.assertEqual(engine.planner.economy.reserve_stone[1],5)
+   self.assertEqual(out['1']['action'],'build');self.assertEqual(out['1']['targetPos'],[w.pos.to_raw()]);self.assertEqual(engine.planner.economy.reserve_stone[1],7)
 
 class WallLifecycleTests(unittest.TestCase):
  def test_stock_then_night_only_upgrade_completes_array_on_both_sides(self):

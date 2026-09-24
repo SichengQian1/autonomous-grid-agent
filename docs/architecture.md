@@ -49,7 +49,7 @@ The active V1 code loop is implemented:
 - side normalization and base-footprint geometry
 - occupied-cell modeling and bounded eight-direction pathfinding
 - conservative multi-role next-cell reservation
-- mirrored three-weapon and fixed-rear-opening layouts
+- mirrored three-weapon layouts and observed-state rear shutter passage
 - defense-aware economy, construction, upgrade, and recall planning
 - controller assignment, partial release, and projected-damage targeting
 - task, bounded LLM/sandbox, news, and structurally guarded treasure state
@@ -70,8 +70,8 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `market.py`: current/future price separation and bounded official-news windows
 - `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use;
   gun options are filtered only by deadlines owned by the gun/base buyer
-- `wall_supply.py`: minimum repair inventory, ore liquidation, ordinary wall stock and
-  optional worker medicine, sharing actual shop/return route budgets
+- `wall_supply.py`: latched ore liquidation, wall-supply and return cycles, initial repair stock and optional worker medicine
+- `wall_access.py`: normalized rear shutters, owned-wall passage, resealing and serialized worker access; virtual route estimates include removal/rebuild work while actual movement respects observed occupancy
 - `route_safety.py`: bounded escape search through equal-clearance cells;
   `travel.py` budgets every worker's dusk return and keeps rear refuges off gun posts
 - `combat.py`: controller release and target allocation
