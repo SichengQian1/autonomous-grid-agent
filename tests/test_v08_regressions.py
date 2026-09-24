@@ -215,6 +215,7 @@ class DevelopmentTests(unittest.TestCase):
 
     def test_current_price_funds_third_level_purchase(self):
         raw=self.ready();raw['teamOur']['goldNum']=175
+        raw['teamOur']['roles'][1]['backpack']=['WallFixer']*5
         turn=Turn.from_raw(raw)
         plan=LogisticsManager(weapon_buyer_id=1).plan(turn,turn.team_our.unit(1),DefenseBudget(0,25,150,12),DEFAULT_CONFIG)
         self.assertEqual(plan.action.name,'WeaponUpgradeVoucher2')

@@ -58,7 +58,8 @@ class WallSupplyTests(unittest.TestCase):
   self.assertEqual((p.action.name,p.action.quantity),('WallFixer',6))
  def test_early_day_does_not_send_engineer_shopping(self):
   from solution.wall_supply import wall_stock_plan
-  t=Turn.from_raw(self.scene(521));p=wall_stock_plan(t,t.team_our.unit(1),BUDGET,DEFAULT_CONFIG)
+  raw=self.scene(521);unit(raw,1)['backpack']=['WallFixer']*6
+  t=Turn.from_raw(raw);p=wall_stock_plan(t,t.team_our.unit(1),BUDGET,DEFAULT_CONFIG)
   self.assertIsNone(p.action);self.assertIsNone(p.move)
   self.assertEqual(p.reason,'mine_before_wall_procurement')
  def test_voucher_counts_follow_actual_levels_and_backpack(self):
@@ -115,7 +116,7 @@ class MiningAndOwnershipTests(unittest.TestCase):
  def test_day_two_forecast_only_affects_main_miner(self):
   from solution.market import PriceWindow
   raw=world(150);raw['mapInfo']['zones']=[{'neutralType':'copper','pos':{'x':11,'y':11}}, {'neutralType':'iron','pos':{'x':1,'y':3}}, {'neutralType':'vendor','pos':{'x':10,'y':13}}]
-  raw['vendorShopList']=[{'name':'copper','price':5},{'name':'iron','price':3}]
+  raw['vendorShopList']=[{'name':'copper','price':20},{'name':'iron','price':3}]
   t=Turn.from_raw(raw);s=WorldState();s.ingest(t)
   s.market.windows=[PriceWindow('iron',3,4,9,rising=True,evidence='synthetic notice',source_day=2)]
   m=EconomyManager(main_miner_id=1);m.plan(t,t.team_our.unit(1),s,DEFAULT_CONFIG,BUDGET)

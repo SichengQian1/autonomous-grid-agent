@@ -140,18 +140,25 @@ class LogisticsManager:
             if target.role_type != ROLE_WALL and critically_damaged(target): score += 6000
             if critically_damaged(target): score += 200000
             return score - distance(target)*20
-        if due_ids:
+        role_due_ids={u.unit_id for u in due_defense_targets(turn,config) if u.role_type!=ROLE_WALL}
+        if role_due_ids:
             # Do not spend the deadline basket on another weapon or base level 3.
             # Carried off-duty vouchers must not pin a pre-deadline shopping order.
-            options = [o for o in options if o[1].unit_id in due_ids or critically_damaged(o[1])]
+            options = [o for o in options if o[1].unit_id in role_due_ids or critically_damaged(o[1])]
         options = [o for o in options if not (turn.is_day and o[1].role_type == ROLE_WALL
                    and o[1].unit_id not in due_ids and o[0] in role.backpack
                    and o[1].health > estimated_max_health(o[1])*config.wall_heal_fraction)]
         options = sorted((o for o in options if distance(o[1]) < 10000), key=value, reverse=True)
+        from .wall_supply import minimum_repair_cost
+        repair_reserve=minimum_repair_cost(turn,config,turn.team_our.unit(self.support_id))
+        if any(not target.is_weapon and (critically_damaged(target) or
+               target.role_type=='station' and target.level<2 and target.unit_id in due_ids|ahead_ids)
+               for _,target,_ in options):
+            repair_reserve=0
         # A carried voucher is not evidence that the whole battery is funded.
         # Re-evaluate missing stock after sale income, before deferred delivery.
         if turn.is_day and turn.day_index>=config.advanced_rocket_day:
-            top_up=weapon_top_up(turn,role,budget,config,options)
+            top_up=weapon_top_up(turn,role,budget,config,options,turn.team_our.unit(self.support_id))
             if top_up.action or top_up.move:
                 self.orders=[];self.carrier_id=None;self.stage='weapon_stock_top_up'
                 return top_up
@@ -177,6 +184,7 @@ class LogisticsManager:
                     price = prices.get(name,0)
                     urgent = critically_damaged(target) or target.unit_id in due_ids or target.unit_id in ahead_ids or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET)
                     allowance = max(budget.offensive, turn.team_our.gold-budget.mandatory) if urgent else budget.offensive
+                    allowance=max(0,allowance-repair_reserve)
                     if not urgent and not any(o.target_id==development_id for o in self.orders):
                         allowance=max(0,allowance-reserve)
                     if 0 < price <= allowance-committed and len(self.orders) < 3:
@@ -214,6 +222,7 @@ class LogisticsManager:
                               or target.unit_id in due_ids or target.unit_id in ahead_ids or target.unit_id==development_id or (not first_rocket and target.role_type == ROLE_ROCKET))
                               for o in self.orders)
         spending = max(budget.offensive, turn.team_our.gold-budget.mandatory) if emergency_order else budget.offensive
+        spending=max(0,spending-repair_reserve)
         target = turn.team_our.unit(delivery.target_id) if delivery else None
         if target is not None and (distance(target)==0 or not needed or missing_cost > spending or shop_distance >= 10000):
             self.stage = "deliver"
@@ -256,7 +265,7 @@ class LogisticsManager:
         return LogisticsPlan()
 
 
-def weapon_top_up(turn,role,budget,config,options):
+def weapon_top_up(turn,role,budget,config,options,support=None):
     if any(not u.is_weapon and critically_damaged(u) for _,u,_ in options):return LogisticsPlan()
     weapons=[u for u in turn.team_our.roles if u.is_weapon and u.alive]
     level=min((u.level for u in weapons),default=3)
@@ -268,7 +277,8 @@ def weapon_top_up(turn,role,budget,config,options):
     need=max(0,len(eligible)-owned)
     prices={i.name:i.price for i in turn.weapon_shop}
     price=prices.get(item,0)
-    cash=max(0,turn.team_our.gold-budget.mandatory-budget.emergency)
+    from .wall_supply import minimum_repair_cost
+    cash=max(0,turn.team_our.gold-budget.mandatory-budget.emergency-minimum_repair_cost(turn,config,support))
     qty=min(need,role.backpack_capacity-len(role.backpack),cash//price) if price>0 else 0
     if qty<=0:return LogisticsPlan()
     trip=TravelBudget.for_role(turn,role,config)

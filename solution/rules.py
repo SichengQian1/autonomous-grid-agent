@@ -121,7 +121,11 @@ class StrategyConfig:
     bomb_minimum_medium_kills: int = 2
     allow_surplus_bomb: bool = True
     engineer_stone_reserve: int = 5
-    wall_stock_early: int = 2
+    wall_stock_early: int = 5
+    worker_medicine_stock: int = 2
+    worker_heal_health: int = 140
+    escape_search_depth: int = 6
+    escape_search_nodes: int = 192
     wall_repair_min_damage: float = 0.30
     wall_heal_fraction: float = 0.40
     wall_retreat_fraction: float = 0.20
@@ -161,8 +165,6 @@ class StrategyConfig:
     treasure_gold_reserve: int = 125
     treasure_material_gold_cap: int = 300
     market_forecast_weight: float = 1.25
-    local_mining_only: bool = True
-    mining_home_radius: int = 10
 
 
 DEFAULT_CONFIG = StrategyConfig()

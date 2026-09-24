@@ -10,7 +10,7 @@ from .geometry import Pos
 from .combat import ROBOT_ATTACK
 
 
-def support_plan(turn,role,config,threats,recent_damage=0,claimed=()):
+def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),committed_id=None):
     if not role.pos:return LogisticsPlan()
     from .wall_supply import wall_use_item, wall_target
     walls=front_walls(turn);due=due_defense_targets(turn,config)
@@ -47,13 +47,13 @@ def support_plan(turn,role,config,threats,recent_damage=0,claimed=()):
                     if turn.coordinate_frame.normalize(p).x<front and not exposed(p))
         path=shortest_path(grid,role.pos,goals) if role.pos.distance_to(wall.pos)>1 else [role.pos]
         steps=max(0,len(path)-1) if path else 10000
-        item=wall_use_item(turn,wall,role,config,approaching,steps)
+        item=wall_use_item(turn,wall,role,config,approaching,steps,committed=wall.unit_id==committed_id)
         threshold=max(int(estimated_max_health(wall)*config.wall_heal_fraction),approaching*(steps+2))
         if not item and wall.health>threshold:continue
         headroom=wall.health/max(immediate,approaching,1)
         risks.append((headroom,wall.health,steps,wall,item,goals,approaching))
     endangered=False
-    for _,_,steps,wall,item,goals,incoming in sorted(risks,key=lambda x:x[:3]):
+    for _,_,steps,wall,item,goals,incoming in sorted(risks,key=lambda x:(x[3].unit_id!=committed_id,*x[:3])):
         if item:
             if role.pos.distance_to(wall.pos)<=1:
                 return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=item,targets=(wall.pos,)),reason="wall_upgrade_heal" if item.startswith("WallUpgrade") else "wall_low_health_repair",evidence=(wall.unit_id,wall.health,steps,incoming,item))
@@ -61,7 +61,7 @@ def support_plan(turn,role,config,threats,recent_damage=0,claimed=()):
                 return LogisticsPlan(move=MoveIntent(role.unit_id,goals,122,avoid_cells=danger),reason="reachable_wall_rescue",evidence=(wall.unit_id,wall.health,steps,incoming,item))
         endangered |= wall.health<=max(int(estimated_max_health(wall)*config.wall_retreat_fraction),incoming*2)
     has_goods=any(x=='WallFixer' or x.startswith('WallUpgradeVoucher') for x in role.backpack)
-    if not has_goods:return retreat()
+    if not has_goods:return retreat('support_no_repair_goods')
     for _,_,steps,wall,item,_,incoming in risks:
         can_restore=('WallFixer' in role.backpack or
                      (wall.level<wall_target(turn,wall) and f'WallUpgradeVoucher{wall.level}' in role.backpack))

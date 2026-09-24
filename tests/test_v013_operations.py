@@ -114,7 +114,7 @@ class SchedulingTests(unittest.TestCase):
         self.assertTrue(any(c['action']=='attack' and str(c['controllerId'])=='2' for c in response['roleCommandMap'].values()))
     def test_main_miner_not_recalled_solely_for_day_three(self):
         from solution.planner import CompetitionPlanner
-        raw=world(330);t=Turn.from_raw(raw);s=WorldState();s.ingest(t)
+        raw=world(270);t=Turn.from_raw(raw);s=WorldState();s.ingest(t)
         self.assertNotIn(7,{i.actor_id for i in CompetitionPlanner._individual_recall(t,s,DEFAULT_CONFIG,1)})
     def test_upgrade_and_attack_do_not_share_actor(self):
         from solution.engine import AgentEngine

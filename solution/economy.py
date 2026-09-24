@@ -145,6 +145,16 @@ def defense_budget(
     return DefenseBudget(mandatory, emergency, offensive, margin)
 
 
+def weapon_stock_cost(turn: Turn, config: StrategyConfig) -> int:
+    """Unfunded battery upgrades, discounting usable vouchers held by living roles."""
+    goal=2 if turn.day_index<=config.ore_hold_days else 3
+    need=Counter(f'WeaponUpgradeVoucher{level}' for w in existing_weapons(turn)
+                 for level in range(max(w.level,1),goal))
+    owned=Counter(item for role in turn.controllable for item in role.backpack)
+    prices={item.name:item.price for item in turn.weapon_shop}
+    return sum(prices.get(name,100000)*quantity for name,quantity in (need-owned).items())
+
+
 def weapon_build_objectives(
     turn: Turn,
     layout: DefenseLayout,
@@ -286,7 +296,8 @@ class EconomyManager:
     def plan(self, turn: Turn, worker: Unit, state: WorldState, config: StrategyConfig, budget: DefenseBudget) -> EconomyPlan:
         if worker.pos is None:
             return EconomyPlan()
-        travel = TravelBudget.for_role(turn,worker,config,must_return=worker.unit_id in self.returning_roles,wall_support=worker.unit_id in self.returning_roles)
+        travel = TravelBudget.for_role(turn,worker,config,wall_support=worker.unit_id in self.returning_roles,
+                                       worker_refuge=worker.unit_id not in self.returning_roles)
         grid,danger=safe_grid(turn,config,self.previous_robots)
         travel.grid=grid
         if travel.daytime:travel.home=distance_field(grid,travel.goals)
@@ -295,6 +306,12 @@ class EconomyManager:
         if worker.pos in danger:
             self.activity[worker.unit_id]='retreat_from_robot'
             return EconomyPlan(move=escape_intent(turn,worker,config,danger))
+        if turn.is_day and travel.cost()+travel.margin>=travel.remaining:
+            self.activity[worker.unit_id]='worker_safety_return'
+            return EconomyPlan(move=MoveIntent(worker.unit_id,travel.goals,119))
+        if 'Medicine' in worker.backpack and worker.health<=config.worker_heal_health:
+            self.activity[worker.unit_id]='worker_recovery'
+            return EconomyPlan(action=Action(worker.unit_id,ActionType.USE,name='Medicine'))
         if not turn.is_day and state.night_role_pauses.get(worker.unit_id,0)>turn.round_no:
             self.activity[worker.unit_id]='bounded_night_failure_pause'
             return EconomyPlan()
@@ -332,8 +349,6 @@ class EconomyManager:
         ranked=[]
         for zone in turn.map_info.zones:
             if zone.pos is None or zone.neutral_type not in RESOURCE_ZONE_TYPES or state.market.closed(zone.neutral_type,turn.day_index):
-                continue
-            if config.local_mining_only and turn.coordinate_frame.normalize(zone.pos).x>(turn.map_info.width-1)//2:
                 continue
             goals=interaction_cells(grid,zone.pos)
             if threats:goals=tuple(p for p in goals if p not in danger)
@@ -415,7 +430,7 @@ class EconomyManager:
         if best is None:
             self.mines.pop(worker.unit_id,None)
             self.activity[worker.unit_id]="no_complete_income_trip"
-            return EconomyPlan()
+            return EconomyPlan(move=MoveIntent(worker.unit_id,travel.goals,30)) if turn.is_day else EconomyPlan()
         previous=next((item for item in ranked if item[1].pos==previous_pos),None)
         if previous is not None and previous[0]*1.2>=best[0]:best=previous
         rate,zone,goals=best;self.mines[worker.unit_id]=zone.pos

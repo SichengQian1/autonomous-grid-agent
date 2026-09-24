@@ -378,15 +378,18 @@ class TreasureKnowledge:
         if pioneer.pos in danger:return AdvancedPlan(move=escape_intent(turn,pioneer,config,danger))
         missing=Counter(self.items)-Counter(pioneer.backpack)
         if missing:
+            if self.mode!='treasure' or not self.complete:return wait('purchase_wait_complete_candidate')
             if not turn.is_day and not guard_ready:return wait('purchase_needs_guard')
-            from .economy import due_defense_targets, next_development_target, upgrade_item
+            from .economy import due_defense_targets, next_development_target, upgrade_item, weapon_stock_cost
+            from .wall_supply import minimum_repair_cost
             target=next_development_target(turn,config)
             prices={i.name:i.price for i in turn.weapon_shop}
             material_cost=sum(prices.get(name,config.treasure_material_gold_cap+1)*n for name,n in missing.items())
             if self.material_spent+material_cost>config.treasure_material_gold_cap:return wait('material_gold_cap')
             weapons=[w for w in turn.team_our.roles if w.is_weapon and w.alive]
             basic=max(0,config.max_weapon_count-sum(w.level>=2 for w in weapons)-sum(r.backpack.count('WeaponUpgradeVoucher1') for r in turn.controllable))
-            reserve=max(config.treasure_gold_reserve,prices.get(upgrade_item(target),0),basic*prices.get('WeaponUpgradeVoucher1',100))
+            reserve=max(config.treasure_gold_reserve,prices.get(upgrade_item(target),0),basic*prices.get('WeaponUpgradeVoucher1',100),
+                        weapon_stock_cost(turn,config)+minimum_repair_cost(turn,config))
             if due_defense_targets(turn,config):return wait('defense_deadline_funding')
             affordable=[(name,n) for name,n in missing.items() if name in prices and prices[name]*n<=max(0,spending-reserve)]
             if not affordable:return wait('material_funding_gap')

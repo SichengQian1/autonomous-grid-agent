@@ -2,7 +2,7 @@
 from collections import Counter
 from dataclasses import replace
 from .actions import Action, ActionType
-from .economy import front_wall_number, side_wall_a, due_defense_targets, wall_level_goal
+from .economy import front_wall_number, side_wall_a, due_defense_targets, wall_level_goal, weapon_stock_cost, scheduled_targets
 from .defense import existing_weapons, existing_walls, build_defense_layout
 from .grid import interaction_cells
 from .logistics import LogisticsPlan, estimated_max_health
@@ -13,6 +13,45 @@ from .travel import TravelBudget
 def wall_target(turn, wall):
     number=front_wall_number(turn,wall)
     return wall_level_goal(turn,wall) if number or side_wall_a(turn,wall) else 1
+
+
+def minimum_repair_stock(turn,config):
+    if turn.day_index<config.night_support_day:return 0
+    return config.pioneer_repair_stock if turn.day_index>=config.repair_stock_day else config.wall_stock_early
+
+
+def minimum_repair_cost(turn,config,role=None):
+    workers=[r for r in turn.controllable if r.role_type=='worker']
+    held=role.backpack.count('WallFixer') if role else max((r.backpack.count('WallFixer') for r in workers),default=0)
+    price=next((i.price for i in turn.weapon_shop if i.name=='WallFixer'),0)
+    return max(0,minimum_repair_stock(turn,config)-held)*price if workers else 0
+
+
+def _minimum_stock_plan(turn,role,config,trip,goals,cash):
+    """Buy the small rescue basket early; sell ore for cash or backpack space."""
+    gap=max(0,minimum_repair_stock(turn,config)-role.backpack.count('WallFixer'))
+    price=next((i.price for i in turn.weapon_shop if i.name=='WallFixer'),0)
+    if not gap or price<=0:return None
+    if not trip.fits(((goals,1),)):
+        return LogisticsPlan(reason='minimum_wall_stock_return_deadline')
+    capacity=max(0,role.backpack_capacity-len(role.backpack))
+    qty=min(gap,capacity,cash//price)
+    if capacity<gap or cash<gap*price:
+        inventory=Counter(n for n in role.backpack if n in ('iron','copper','stone'))
+        inventory['stone']=max(0,inventory['stone']-config.engineer_stone_reserve)
+        prices={i.name:i.price for i in turn.vendor_shop}
+        names=[n for n,q in inventory.items() if q>0 and prices.get(n,0)>0]
+        vendors=tuple(p for v in turn.zone_positions('vendor') for p in interaction_cells(trip.grid,v))
+        if names and vendors and trip.fits(((vendors,1),(goals,1))):
+            if role.pos in vendors:
+                name=max(names,key=lambda n:prices[n]*inventory[n])
+                return LogisticsPlan(action=Action(role.unit_id,ActionType.SELL,name=name,quantity=inventory[name]),reason='wall_stock_sell_ore')
+            return LogisticsPlan(move=MoveIntent(role.unit_id,vendors,97),reason='wall_stock_liquidate_trip')
+    if qty>0:
+        if role.pos in goals:
+            return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name='WallFixer',quantity=qty),reason='minimum_wall_stock_purchase')
+        return LogisticsPlan(move=MoveIntent(role.unit_id,goals,97),reason='minimum_wall_stock_trip')
+    return LogisticsPlan(reason='minimum_wall_stock_funding_or_capacity')
 
 
 def wall_needs(turn, role, config):
@@ -32,7 +71,7 @@ def wall_needs(turn, role, config):
     return +(need-Counter(role.backpack))
 
 
-def wall_stock_plan(turn, role, budget, config):
+def wall_stock_plan(turn, role, budget, config, *, minimum_only=False):
     if role.role_type!='worker' or not turn.is_day or turn.day_index<config.night_support_day or not role.pos:
         return LogisticsPlan()
     need=wall_needs(turn,role,config)
@@ -47,13 +86,15 @@ def wall_stock_plan(turn, role, budget, config):
     weapons=existing_weapons(turn)
     reserve=budget.mandatory
     reserve+=max(0,sum(w.level<2 for w in weapons)-owned['WeaponUpgradeVoucher1'])*prices.get('WeaponUpgradeVoucher1',100)
-    # The third-day liquidation funds the entire battery before optional wall
-    # stock. Later emergency repair stock keeps its established priority.
-    if turn.day_index==config.advanced_rocket_day:
-        reserve+=max(0,sum(w.level<3 for w in weapons)-owned['WeaponUpgradeVoucher2'])*prices.get('WeaponUpgradeVoucher2',150)
     base=turn.team_our.station()
-    if turn.day_index>=config.base_level_two_day and base and base.level<2 and not owned['StationUpgradeVoucher1']:
+    if base and base.level<2 and base.unit_id in {u.unit_id for u in scheduled_targets(turn,config)} and not owned['StationUpgradeVoucher1']:
         reserve+=prices.get('StationUpgradeVoucher1',100)
+    minimum=_minimum_stock_plan(turn,role,config,trip,goals,max(0,turn.team_our.gold-reserve))
+    if minimum is not None:
+        return replace(minimum,evidence=evidence+(('reserved_gold',reserve),))
+    if minimum_only:return LogisticsPlan(reason='minimum_wall_stock_ready',evidence=evidence)
+    basic_cost=max(0,sum(w.level<2 for w in weapons)-owned['WeaponUpgradeVoucher1'])*prices.get('WeaponUpgradeVoucher1',100)
+    reserve+=max(0,weapon_stock_cost(turn,config)-basic_cost)
     cash=max(0,turn.team_our.gold-reserve)
     full_cost=sum(prices.get(name,100000)*qty for name,qty in need.items())
     funded_day_three=turn.day_index==config.advanced_rocket_day and cash>=full_cost
@@ -84,12 +125,13 @@ def wall_stock_plan(turn, role, budget, config):
     return LogisticsPlan(reason='wall_stock_funding_gap',evidence=evidence+(('reserved_gold',reserve),))
 
 
-def wall_use_item(turn,wall,role,config,incoming=0,steps=0):
+def wall_use_item(turn,wall,role,config,incoming=0,steps=0,committed=False):
     """Repair never inherits an upgrade deadline; upgrades are night-only."""
     if turn.is_day:return ''
     maximum=estimated_max_health(wall)
     missing=maximum-wall.health
     low=wall.health<=max(maximum*config.wall_heal_fraction,incoming*(steps+2))
+    low=low or (committed and incoming>0 and missing>=maximum*config.wall_repair_min_damage)
     item=f'WallUpgradeVoucher{wall.level}'
     next_turn=replace(turn,round_no=turn.day_index*130+1)
     due={w.unit_id for w in due_defense_targets(turn,config)}
@@ -126,3 +168,21 @@ def final_helper_stock(turn,role,engineer,budget,config):
     if trip.cost()+trip.margin>=turn.rounds_until_night:
         return LogisticsPlan(move=MoveIntent(role.unit_id,trip.goals,119),reason='final_helper_return')
     return LogisticsPlan(reason='mine_before_final_helper_trip')
+
+
+def worker_medicine_plan(turn,role,engineer,budget,config):
+    """Optional stock only while already at the shop with time to return."""
+    if not turn.is_day or role.role_type!='worker' or not role.pos:
+        return LogisticsPlan()
+    missing=max(0,config.worker_medicine_stock-role.backpack.count('Medicine'))
+    prices={i.name:i.price for i in turn.weapon_shop};price=prices.get('Medicine',0)
+    if not missing or price<=0:return LogisticsPlan()
+    trip=TravelBudget.for_role(turn,role,config,worker_refuge=role!=engineer,wall_support=role==engineer)
+    if not any(role.pos.distance_to(s)<=1 for s in turn.zone_positions('weaponShop')) or not trip.fits((((role.pos,),1),)):
+        return LogisticsPlan()
+    wall_cost=sum(prices.get(n,100000)*q for n,q in wall_needs(turn,engineer,config).items()) if engineer else 0
+    base_cost=sum(prices.get(f'StationUpgradeVoucher{u.level}',100000) for u in due_defense_targets(turn,config) if u.role_type=='station')
+    cash=max(0,turn.team_our.gold-budget.mandatory-budget.emergency-weapon_stock_cost(turn,config)-wall_cost-base_cost)
+    qty=min(missing,max(0,role.backpack_capacity-len(role.backpack)),cash//price)
+    if qty:return LogisticsPlan(action=Action(role.unit_id,ActionType.BUY,name='Medicine',quantity=qty),reason='worker_medicine_stock')
+    return LogisticsPlan()

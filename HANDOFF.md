@@ -5,6 +5,92 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.19 income continuity, dusk return and persistent development (2026-09-24)
+
+Scope: address the reviewed income, upgrade and support failures while preserving
+six-task solving, the three-rocket layout/rotation, v0.18 raid/Bomb experiment,
+final-night helper, and preceding-night treasure handover. No new dependencies.
+
+Evidence and boundaries:
+- Four selected v0.18 local logs all record six fully completed tasks and no
+  recorded planner/protocol errors. Two retain their base at settlement; one
+  loses it earlier; one lacks late-night turn detail. These are selected cases,
+  not an estimate of overall win rate. One high-scoring case still fails treasure.
+- A hard map-half resource filter can leave the miner with zero candidates when
+  all refreshed resources are across the midpoint. This filter originated in
+  v0.5, not v0.18. Income loss and missing repair stock are observed together;
+  missing late turns prevent a full reconstruction of the fatal sequence.
+- The main miner did not reserve daytime work-to-refuge travel. One observed
+  night-start death has every adjacent cell occupied: relaxing a one-step escape
+  comparison cannot rescue that already boxed state.
+- A remaining level-two gun was excluded when only engineer-owned wall upgrades
+  were due. Separately, repair shopping could miss its route deadline despite
+  cash and valuable carried ore. Zero repair inventory is not always zero cash.
+- The rescue threshold decreased on arrival, allowing a selected wall repair to
+  turn into waiting. A synthetic case isolates that decision discontinuity.
+- Delaying purchases cannot reject a complete but hallucinated model candidate.
+  Preserve the existing model interaction/contract as requested; no extra source
+  evidence fields or cross-day semantic gate were added. All retained source days
+  still go to the model. No dedicated second-material-set budget is reserved.
+
+Implemented:
+- Remove both mining half filters and the unused radius setting. Rank resources
+  by existing actual-path, price, capacity and market rules. All workers budget
+  daytime return; ordinary miners use rear free cells separate from gun posts.
+  No viable income trip sends the worker home to wait. Night production still
+  requires safe visible routes. A worker crossing a higher-priority gun destination
+  can yield without waiting to reach its own goal first.
+- Escape searches at most 192 cells/six steps, allowing equal-clearance first
+  steps on a route out of danger. Return only a legal adjacent move; never invent
+  movement through occupied cells. Optional Medicine stock is at most two while
+  already at a shop with surplus funds; safe low-health use or boxed fallback
+  follows movement priority. This does not guarantee escape or survival.
+- Keep missing gun upgrades active after day three. Due wall goals no longer
+  erase the gun buyer's options. Read observed levels, living inventory and current
+  prices; reserve remaining weapon funds ahead of treasure/ordinary extra stock.
+- From day three, first procure five repair packs; from day five the baseline
+  remains six, with later surplus stock up to fifteen. This starts procurement
+  on day three, not pre-buying on day two or guaranteeing five at daybreak.
+  Protect essential gun/base funds, sell carried ore when cash/capacity prevents
+  stock, and retain five rebuilding stones. The small basket uses its own route
+  budget. Once minimum stock is ready, missing walls take priority over the full
+  wall basket. Preserve emergency base upgrades and night-only wall use.
+- Carry a reachable wall-rescue target through arrival while damage and threat
+  persist, retaining upgrade-heal priority, minimum useful damage and actual
+  worker exposure/health checks. Reset when resolved, unsafe, unavailable or daytime.
+  Distinguish empty repair inventory from exposure in diagnostics; log supportTargets.
+- Purchase treasure offerings only after model mode=treasure and valid materials,
+  location and window. Keep incremental memory, failure rejection, bounded attempts,
+  guard handover and protocol recovery. Background analysis still runs when all
+  physical roles have recall intents, preventing recall from suppressing a prompt.
+
+Validation and release:
+- Exact Python 3.11.10 on the local development OS: 439 unittest cases and
+  compileall pass, including seventeen new v0.19 synthetic incidents. Updated old
+  expectations only where they encoded partial treasure purchases, half-map
+  filtering, no ordinary-worker dusk recall, or spending without minimum repairs.
+- The suite runs both sides for 1,300 turns each: zero invalid responses, rejected
+  actions, failed actions or planner exceptions, with three final weapons. These
+  synthetic checks do not model actual competition survival or score gains.
+- Source and clean archive each pass both sides of the 71-turn constrained-build
+  HTTP scenario: three rockets, at least ten walls and one controller adjacent to
+  all three. Malformed JSON, null and array inputs return safe responses.
+- Source/archive HTTP treasure flows cover malformed model recovery, no purchase
+  for incomplete candidates, incremental completion, purchase/open, platform
+  rejection and decoded diagnostics. No live platform model was invoked.
+- Archive has only CoreGeek/main3.py plus forty solution modules. All eighteen
+  older archives are byte-identical to their previous commit. Task solvers,
+  protocol serializer and action validator remain unchanged. Raw logs, local
+  reference material and private verification outputs remain excluded.
+- Artifact: submissions/v0/submission-v0.19.tar.gz.
+  SHA-256: f8122e12107b8921be30e9656bed46ae3603a0d31c89d9659e53777c5bdfddff.
+- Publish on codex/v0 under standing authorization; preserve the user's unrelated
+  AGENTS.md edits outside the release. No platform upload or match launch.
+- Not validated on target CentOS. No v0.19 practice result yet; worker survival,
+  income continuity, upgrade completion, wall support and treasure correctness
+  must be compared using real logs. Complete-candidate hallucinations remain.
+
+
 ## v0.18 opening score race and final-night support (2026-09-24)
 
 Scope: preserve v0.17 task/treasure interpretation and its failure recovery. Add

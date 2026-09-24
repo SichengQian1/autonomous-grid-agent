@@ -134,3 +134,22 @@ Protected development funds now continue beyond basic level two, and urgent sale
 decisions use personal inventory. Advanced rocket/front-wall timing is configurable,
 not an established winning build order. Calibration must track task correctness,
 pre-night income, procurement-to-use delay, maintenance and survival on both sides.
+
+
+## v0.19 comparison checklist
+
+Compare practice logs against v0.18 by actual side/day and available turns:
+
+- income and worker activity when resources refresh entirely across the midpoint;
+- dusk worker positions, return decisions, deaths and lost inventory;
+- each gun's observed level, missing voucher stock and subsequent purchases after
+  delayed income; all three guns should keep progressing when travel/funding allow;
+- third-night repair stock, ore sales that fund it, repair arrival/use and retreats;
+- base survival, tasks, treasure results and combat score on a broader sample.
+
+A complete model candidate is still only an inference. Track wrong location/time
+results separately from premature partial-candidate purchases. A missing turn is
+unknown, and a score checkpoint without base health cannot establish survival.
+Fail the current hypothesis if return safety repeatedly blocks profitable feasible
+trips, stock shopping prevents essential construction, or continued rescue increases
+worker deaths. Synthetic checks validate scheduling and protocol only.

@@ -68,7 +68,12 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `defense.py`: normalized threat geometry and fixed opening
 - `economy.py`: construction access checks, persistent mining/sale plans, and defense budget
 - `market.py`: current/future price separation and bounded official-news windows
-- `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use
+- `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use;
+  gun options are filtered only by deadlines owned by the gun/base buyer
+- `wall_supply.py`: minimum repair inventory, ore liquidation, ordinary wall stock and
+  optional worker medicine, sharing actual shop/return route budgets
+- `route_safety.py`: bounded escape search through equal-clearance cells;
+  `travel.py` budgets every worker's dusk return and keeps rear refuges off gun posts
 - `combat.py`: controller release and target allocation
 - `tasking.py`: task recovery and LLM/sandbox coordination
 - `treasure.py`: daily raw folklore, LLM contract, incremental candidates, structural checks and bounded expeditions

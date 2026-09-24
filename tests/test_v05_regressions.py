@@ -32,7 +32,7 @@ def developed():
 
 
 class V05RegressionTests(unittest.TestCase):
-    def test_local_ore_is_preferred_to_enemy_side_windfall(self):
+    def test_cross_midline_income_competes_on_complete_trip_value(self):
         raw=developed()
         raw['teamOur']['roles'][0]['pos']={'x':4,'y':4}
         raw['mapInfo']['zones']=[{'neutralType':'iron','pos':{'x':3,'y':4}},
@@ -47,10 +47,11 @@ class V05RegressionTests(unittest.TestCase):
                     if obj.get('roleType')=='station':
                         obj['pos']['x']-=1; obj['pos']['y']+=1
             turn=Turn.from_raw(raw); state=WorldState(); state.ingest(turn)
-            result=EconomyManager().plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,10))
-            self.assertIsNotNone(result.action)
-            expected={'x':3,'y':4} if side=='challenger' else {'x':26,'y':13}
-            self.assertEqual(result.action.targets[0].to_raw(),expected)
+            manager=EconomyManager()
+            result=manager.plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,10))
+            self.assertIsNotNone(result.move)
+            expected={'x':23,'y':4} if side=='challenger' else {'x':6,'y':13}
+            self.assertEqual(manager.mines[1].to_raw(),expected)
 
     def test_distant_recall_does_not_stop_nearby_wall_builder(self):
         raw=developed(); raw['roundNo']=52

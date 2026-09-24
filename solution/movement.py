@@ -46,7 +46,8 @@ def schedule_moves(
         for blocker_id, blocker in roles.items():
             held = by_actor.get(blocker_id)
             if (not held or blocker_id == intent.actor_id or blocker.pos not in route[1:]
-                    or blocker.pos not in held.goals or held.priority >= intent.priority):
+                    or (blocker.pos not in held.goals and blocker.pos not in intent.goals)
+                    or held.priority >= intent.priority):
                 continue
             grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=(blocker_id,))
             candidates = [p for p in grid.neighbours(blocker.pos)

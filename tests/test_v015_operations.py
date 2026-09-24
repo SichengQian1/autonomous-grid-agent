@@ -67,6 +67,7 @@ class FundingTests(unittest.TestCase):
         raw=funded_shop();raw['teamOur']['goldNum']=249
         raw['weaponShopList'][1]['price']=200
         unit(raw,2)['backpack']=['WeaponUpgradeVoucher2']
+        unit(raw,1)['backpack']=['WallFixer']*5
         turn=Turn.from_raw(raw);plan=LogisticsManager(weapon_buyer_id=2).plan(turn,turn.team_our.unit(2),BUDGET,DEFAULT_CONFIG)
         self.assertEqual(plan.action.quantity,1)
 
@@ -260,7 +261,7 @@ class ThirdNightFlowTests(unittest.TestCase):
             raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':shop.to_raw()}]
             unit(raw,2)['pos']=frame.denormalize(Pos(10,10)).to_raw()
             unit(raw,1)['pos']=frame.denormalize(Pos(10,11)).to_raw()
-            unit(raw,1)['backpack']=['stone']*5
+            unit(raw,1)['backpack']=['stone']*5+['WallFixer']*5
             unit(raw,7)['pos']=frame.denormalize(Pos(12,11)).to_raw()
             raw['teamOur']['goldNum']=175;engine=AgentEngine();uses=[];purchases=[]
             prices={i['name']:i['price'] for i in raw['weaponShopList']}

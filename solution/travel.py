@@ -21,7 +21,9 @@ class TravelBudget:
     goals: tuple[Pos,...] = ()
 
     @classmethod
-    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig, *, must_return=True, wall_support=False):
+    def for_role(cls, turn: Turn, role: Unit, config: StrategyConfig, *, must_return=True, wall_support=False, worker_refuge=False):
+        if wall_support and turn.day_index<config.night_support_day:
+            worker_refuge=True
         grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
         weapons=tuple(u for u in turn.team_our.roles if u.is_weapon and u.alive)
         assignment=next((a for a in assign_controllers(turn,weapons,config) if a.controller.unit_id==role.unit_id),None)
@@ -30,9 +32,15 @@ class TravelBudget:
         else:
             station=turn.team_our.station()
             goals=tuple(p for cell in station.footprint() for p in interaction_cells(grid,cell)) if station else (role.pos,)
+            if worker_refuge and station:
+                layout=build_defense_layout(turn)
+                occupied={r.pos for r in turn.controllable if r.unit_id!=role.unit_id}
+                refuge=tuple(p for p in layout.rear_corridor if p not in layout.controller_sites
+                             and p not in occupied and grid.passable(p))
+                if refuge:goals=refuge
             held=next((w for w in weapons if w.level<3 and f'WeaponUpgradeVoucher{w.level}' in role.backpack),None)
-            if held is not None:goals=interaction_cells(grid,held.pos)
-            elif station and turn.day_index>=config.night_support_day and (wall_support or any(i=='WallFixer' or i.startswith('WallUpgradeVoucher') for i in role.backpack)):
+            if held is not None and not worker_refuge:goals=interaction_cells(grid,held.pos)
+            elif station and turn.day_index>=config.night_support_day and (wall_support or not worker_refuge and any(i=='WallFixer' or i.startswith('WallUpgradeVoucher') for i in role.backpack)):
                 cells=turn.coordinate_frame.normalize_cells(station.footprint())
                 post=turn.coordinate_frame.denormalize(Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+1))
                 if grid.passable(post):goals=(post,)

@@ -45,7 +45,7 @@ local/              confidential local notes, excluded from Git
 all/                confidential source material, excluded from Git
 ```
 
-The v0.18 candidate implementation is active. It includes
+The v0.19 candidate implementation is active. It includes
 eight-direction pathfinding, joint role movement, mirrored defensive geometry,
 construction/economy/recall planning, threat-weighted combat, task and treasure
 state machines, bounded encoded telemetry, and opponent modes. Summon pressure remains disabled. From night three, level-three rockets prioritize
@@ -54,12 +54,15 @@ The wall engineer stocks surplus-funded Bombs by day after defense supplies. One
 times wall purchases around daytime mining. The other worker mines and joins final-night wall defense; the pioneer
 handles tasks and weapon upgrades as the primary gun operator; official news and
 folk clues feed separate market and treasure decisions.
-v0.18 uses one shared pioneer gun post, stable wall support, two-day ore holding,
+v0.19 uses one shared pioneer gun post, stable wall support, two-day ore holding,
 explicit defense deadlines, and source-indexed treasure preparation with confirmed
 night guard handovers. Known next-day treasure expeditions use the preceding night
 for a safe trip after the miner confirms gun control. Treasure semantics are delegated to the platform model using daily raw folklore
 and current catalog properties. Structural guards, a cumulative material budget,
-two opening attempts and platform feedback bound execution. See [the operating guide](docs/operating-logic.md).
+two opening attempts and platform feedback bound execution. v0.19 waits for a complete
+model candidate before buying offerings, keeps unfinished gun upgrades active,
+targets at least five repair packs from day three, and allows cross-midline
+mining with path-based dusk recall for every worker. See [the operating guide](docs/operating-logic.md).
 Unknown platform mechanics retain safe fallbacks and require practice calibration.
 
 On a Windows development computer, run the service directly from PowerShell:
@@ -84,7 +87,7 @@ validate the exact platform archive with:
 python tools/build_submission.py
 ```
 
-For `v0.18`, this produces `submissions/v0/submission-v0.18.tar.gz`. The archive
+For `v0.19`, this produces `submissions/v0/submission-v0.19.tar.gz`. The archive
 contains top-level `CoreGeek/`, its `main3.py` entrypoint, and every module under
 `solution/`; it excludes repository documentation, tests, diagnostics, logs, and
 local source material. Minor updates advance `v0.x` on branch `codex/v0`; only a
@@ -111,7 +114,7 @@ python .\tools\diagnostics\decode_match_log.py "D:\path\to\match.log.xz" --outpu
 For a compact shareable diagnosis, use `--summary` without `--output`.
 Use `--pioneer --day 6` to inspect pioneer activity, no-command intervals and missing-turn coverage.
 
-The decoder accepts v0.2–v0.18 formats and decoded JSONL, including `.xz` files.
+The decoder accepts v0.2–v0.19 formats and decoded JSONL, including `.xz` files.
 Keep historical key IDs when rotating the active key. Decoding restores recorded,
 bounded, sanitized events; it cannot recover unrecorded or redacted content.
 v0.5 also records command rejection/error categories, changing mine locations,

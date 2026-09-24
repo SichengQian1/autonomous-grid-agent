@@ -21,6 +21,7 @@ from .economy import (
     defense_budget,
     wall_build_objective,
     weapon_build_objectives,
+    weapon_stock_cost,
 )
 from .grid import OccupancyGrid, distance_field, interaction_cells, shortest_path
 from .logistics import plan_upgrade_or_repair, LogisticsManager, plan_repair_stock
@@ -31,7 +32,7 @@ from .rules import ROLE_PIONEER, ROLE_WORKER, ROUNDS_PER_DAY, StrategyConfig
 from .state import LlmBudget, WorldState
 from .travel import TravelBudget
 from .maintenance import support_plan
-from .wall_supply import wall_stock_plan, final_helper_stock
+from .wall_supply import wall_stock_plan, final_helper_stock, worker_medicine_plan
 from .surplus_bomb import SurplusBomb
 from .roles import GuardHandover, wall_goods
 from .route_safety import danger_cells, escape_intent
@@ -65,6 +66,7 @@ class CompetitionPlanner:
     support_health: tuple | None = None
     support_damage: int = 0
     raid_status: str = ''
+    support_targets: dict[int,int] = field(default_factory=dict)
 
     def plan(
         self,
@@ -89,6 +91,7 @@ class CompetitionPlanner:
             self.guard = GuardHandover()
             self.surplus_bomb = SurplusBomb()
             self.support_health=None
+            self.support_targets.clear()
             self.failure_count = 0
             self.news_prompt_source = self.interpreted_news = ""
         self.treasure.observe(turn,config)
@@ -121,6 +124,9 @@ class CompetitionPlanner:
         support=turn.team_our.unit(self.support_id)
         self.support_damage=max(0,self.support_health[1]-support.health) if support and self.support_health and self.support_health[0]==support.unit_id else 0
         self.support_health=(support.unit_id,support.health) if support else None
+        if turn.is_day:self.support_targets.clear()
+        self.support_targets={actor:target for actor,target in self.support_targets.items()
+                              if actor in {r.unit_id for r in turn.controllable}}
         self.logistics.support_id=self.support_id
         pioneer=next((r for r in turn.controllable if r.role_type==ROLE_PIONEER),None)
         self.logistics.weapon_buyer_id=(self.guard.backup_id if self.guard.away or pioneer is None else pioneer.unit_id)
@@ -222,8 +228,8 @@ class CompetitionPlanner:
                 intents.append(MoveIntent(backup.unit_id,(backup.pos,),125,yield_cells=()))
                 used.add(backup.unit_id)
         support=next((w for w in workers if w.unit_id==self.support_id and w.unit_id not in used),None)
-        if support and len(existing_walls(turn))>=len(layout.wall_sites) and len(existing_weapons(turn))>=3:
-            stock=wall_stock_plan(turn,support,budget,config)
+        if support and len(existing_weapons(turn))>=3:
+            stock=wall_stock_plan(turn,support,budget,config,minimum_only=len(existing_walls(turn))<len(layout.wall_sites))
             self.wall_supply_status={"reason":stock.reason,"needs_and_route":stock.evidence}
             self.economy.activity[support.unit_id]=stock.reason
             self.economy.evidence[support.unit_id]={"supply":stock.evidence}
@@ -314,7 +320,6 @@ class CompetitionPlanner:
                     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
                     distances = distance_field(grid, (worker.pos,))
                     stone_zones = [z for z in turn.map_info.zones if z.neutral_type == "stone" and z.pos is not None
-                                   and (not config.local_mining_only or layout.frame.normalize(z.pos).x <= (turn.map_info.width-1)//2)
                                    and not state.market.closed("stone", turn.day_index)]
                     def mine_distance(zone):
                         return min((distances.get(p, 10000) for p in interaction_cells(grid, zone.pos)), default=10000)
@@ -358,6 +363,10 @@ class CompetitionPlanner:
                     used.add(worker.unit_id)
 
             advanced = AdvancedPlan()
+            if (pioneer is not None and pioneer.unit_id not in used and not turn.phase_task
+                    and weapon_stock_cost(turn,config)>0):
+                purchase=self.logistics.plan(turn,pioneer,budget,config)
+                self._merge_advanced(purchase,actions,intents,used)
             if pioneer is not None and pioneer.unit_id not in used and not turn.phase_task:
                 treasure_plan=self.treasure.plan(turn,pioneer,config,budget.offensive,guard_ready=guard_ready)
                 self._merge_advanced(treasure_plan,actions,intents,used)
@@ -396,8 +405,6 @@ class CompetitionPlanner:
                 if pioneer.unit_id not in used:
                     self._stage_idle_pioneer(turn,pioneer,config,intents,used)
 
-            treasure_prompt=self._background_prompt(turn,state,llm_budget,advanced)
-
             shop_grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
             shop_goals=tuple(p for shop in turn.zone_positions('weaponShop') for p in interaction_cells(shop_grid,shop))
             shop_dist=distance_field(shop_grid,shop_goals) if shop_goals else {}
@@ -416,8 +423,14 @@ class CompetitionPlanner:
                         used.add(worker.unit_id)
                     if worker.unit_id in used:
                         continue
+                    medicine=worker_medicine_plan(turn,worker,turn.team_our.unit(self.support_id),budget,config)
+                    self._merge_advanced(medicine,actions,intents,used)
+                    if worker.unit_id in used:
+                        self.economy.activity[worker.unit_id]=medicine.reason
+                        continue
                     self._plan_worker_economy(turn, worker, actions, intents, used, state, config, budget)
 
+        treasure_prompt=self._background_prompt(turn,state,llm_budget,advanced)
         build_cells = tuple(target for action in actions if action.action_type == ActionType.BUILD for target in action.targets)
         for role in turn.controllable:
             if role.unit_id not in used and role.pos is not None:
@@ -585,7 +598,11 @@ class CompetitionPlanner:
             for role in sorted(released,key=lambda r:r.unit_id!=self.support_id):
                 final_helper=turn.day_index>=config.final_defense_day and role.unit_id==self.economy.main_miner_id
                 if turn.day_index>=config.night_support_day and (role.unit_id==self.support_id or final_helper) and role.unit_id not in used_controllers:
-                    support=support_plan(turn,role,config,threats,recent_damage=self.support_damage if role.unit_id==self.support_id else 0,claimed=claimed)
+                    support=support_plan(turn,role,config,threats,recent_damage=self.support_damage if role.unit_id==self.support_id else 0,
+                                         claimed=claimed,committed_id=self.support_targets.get(role.unit_id))
+                    if support.reason=='reachable_wall_rescue' and support.evidence:
+                        self.support_targets[role.unit_id]=support.evidence[0]
+                    else:self.support_targets.pop(role.unit_id,None)
                     self.economy.activity[role.unit_id]=support.reason
                     self.economy.evidence[role.unit_id]={"wall_risk":support.evidence}
                     if role.unit_id==self.support_id and support.reason in ('support_hold_protected','support_wait_with_goods'):
@@ -638,6 +655,8 @@ class CompetitionPlanner:
                 intents=[i for i in intents if i.actor_id!=worker.unit_id]
                 escape=escape_intent(turn,worker,config,danger)
                 if escape:intents.append(escape)
+                elif 'Medicine' in worker.backpack and worker.health<=config.worker_heal_health:
+                    actions.append(Action(worker.unit_id,ActionType.USE,name='Medicine'))
                 self.economy.activity[worker.unit_id]='night_work_exposure_retreat'
             else:
                 intents=[replace(i,avoid_cells=i.avoid_cells|danger) if i.actor_id==worker.unit_id else i for i in intents]
@@ -790,12 +809,15 @@ class CompetitionPlanner:
         station = turn.team_our.station()
         if station is not None:
             home = tuple(dict.fromkeys(p for cell in station.footprint() for p in interaction_cells(grid,cell)))
-            intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config,wall_support=role.unit_id==support_id).goals or home,110) for role in turn.controllable
-                           if role.unit_id not in assigned and role.pos is not None and ((turn.day_index>=config.night_support_day and role.unit_id==support_id) or role.role_type!=ROLE_WORKER))
+            intents.extend(MoveIntent(role.unit_id,TravelBudget.for_role(turn,role,config,
+                           wall_support=role.unit_id==support_id,
+                           worker_refuge=role.role_type==ROLE_WORKER and role.unit_id!=support_id).goals or home,110)
+                           for role in turn.controllable if role.unit_id not in assigned and role.pos is not None)
         result = []
         for intent in intents:
             role = turn.team_our.unit(intent.actor_id)
-            travel=TravelBudget.for_role(turn,role,config,wall_support=role.unit_id==support_id)
+            travel=TravelBudget.for_role(turn,role,config,wall_support=role.unit_id==support_id,
+                                        worker_refuge=role.role_type==ROLE_WORKER and role.unit_id!=support_id)
             distance=travel.cost()
             upgrade_actions=sum(min(role.backpack.count(f"WeaponUpgradeVoucher{level}"),sum(w.level==level for w in existing_weapons(turn))) for level in (1,2)) if role.role_type==ROLE_PIONEER else 0
             if not intent.goals:
@@ -805,6 +827,8 @@ class CompetitionPlanner:
             if (state.recall_day == turn.day_index or intent.actor_id in state.recalled_roles
                     or distance+travel.margin+upgrade_actions >= turn.rounds_until_night):
                 state.recalled_roles[intent.actor_id] = turn.day_index
+                # A hold at the refuge remains a valid wait; no invented mining
+                # action is needed merely to avoid an empty command.
                 result.append(intent)
         return result
 

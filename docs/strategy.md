@@ -1,10 +1,12 @@
 # Strategy
 
-The versioned sections below preserve historical decisions. Current v0.18 behavior
+The versioned sections below preserve historical decisions. Current v0.19 behavior
 is described in [the operating guide](operating-logic.md) and [HANDOFF](../HANDOFF.md).
 Treasure no longer requires multiple clue days or model-reported confidence: it
 delegates semantic interpretation to the model, checks output structure, and uses
-bounded procurement/attempts plus confirmed nighttime guard handover.
+procurement only after a complete model candidate, bounded attempts, and confirmed
+nighttime guard handover. Mining is no longer restricted by a map half; every
+worker budgets a pre-night route to its defensive position or rear refuge.
 
 ## Global Objective
 

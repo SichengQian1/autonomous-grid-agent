@@ -92,6 +92,7 @@ class AgentEngine:
                     diagnostics={
                         "operationLogDropped": self.operations.dropped,
                         "supportWorker": self.planner.support_id,
+                        "supportTargets": self.planner.support_targets,
                         "wallSupply": self.planner.wall_supply_status,
                         "surplusBomb": self.planner.surplus_bomb.status,
                         "bombResult": self.planner.surplus_bomb.result,
