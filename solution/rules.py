@@ -120,18 +120,10 @@ class StrategyConfig:
     bomb_damage: int = 100
     bomb_minimum_medium_kills: int = 2
     allow_surplus_bomb: bool = True
-    engineer_stone_reserve: int = 7
-    seal_rear_access: bool = True
-    gate_start_day: int = 3
-    gate_enemy_clearance: int = 4
-    gate_stall_limit: int = 3
-    gate_trip_limit: int = 18
-    gate_helper_queue_buffer: int = 4
-    wall_stock_early: int = 5
-    worker_medicine_stock: int = 2
-    worker_heal_health: int = 140
-    escape_search_depth: int = 6
-    escape_search_nodes: int = 192
+    engineer_stone_reserve: int = 5
+    wall_stock_early: int = 2
+    support_front_wall_number: int = 3
+    support_upgrade_priority_slack: int = 2
     wall_repair_min_damage: float = 0.30
     wall_heal_fraction: float = 0.40
     wall_retreat_fraction: float = 0.20
@@ -171,6 +163,8 @@ class StrategyConfig:
     treasure_gold_reserve: int = 125
     treasure_material_gold_cap: int = 300
     market_forecast_weight: float = 1.25
+    local_mining_only: bool = False
+    mining_home_radius: int = 10
 
 
 DEFAULT_CONFIG = StrategyConfig()

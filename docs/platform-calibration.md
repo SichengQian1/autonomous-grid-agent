@@ -174,3 +174,22 @@ real repair uses, base survival and score. Repeated late arrivals, stranded work
 or persistent repair shortages despite available sale income would contradict the
 current scheduling assumptions. Unit tests and synthetic HTTP cycles do not measure
 these match outcomes. No v0.20 platform result is available at release.
+
+
+## v0.21 scoped return to v0.18
+
+The active runtime is restored from the complete v0.18 release, not incrementally
+built on v0.20. Three changes address observed income interruptions, ore retained
+through supply shortages, and the reported risk of leaving wall three for a side
+repair: remove resource half-map filters, liquidate non-stone ore before timed wall
+shopping, and prefer the wall-three post with return-aware repair selection.
+
+Compare both sides and complete observed intervals: income from opposite-half
+resources, held ore before/after shopping, wall supplies and worker position at
+nightfall, wall-three health during side trips, actual repair uses, worker/base
+survival and score. Repeated profitable trips missed by procurement, late returns,
+or earlier critical-wall losses would challenge these scheduling assumptions.
+The wall damage estimate can count one robot against multiple walls; it is not an
+exact target forecast. Unit and HTTP checks cannot establish stronger match results.
+No v0.21 platform evidence is available at release. Earlier version sections are
+historical and do not imply their strategy changes are active in this baseline.

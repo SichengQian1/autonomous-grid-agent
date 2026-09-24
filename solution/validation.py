@@ -361,9 +361,9 @@ class ActionValidator:
             return "remove requires one adjacent target"
         if not any(
             unit.role_type == ROLE_WALL and unit.pos == action.targets[0]
-            for unit in turn.team_our.roles
+            for unit in turn.team_our.roles + turn.team_enemy.roles
         ):
-            return "remove target is not an owned wall"
+            return "remove target is not a visible wall"
         return ""
 
     def _validate_accept_task(

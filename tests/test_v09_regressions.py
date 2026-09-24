@@ -366,7 +366,7 @@ class CacheAndBoundaryTests(unittest.TestCase):
     def test_idle_worker_is_not_recalled_just_for_weapon_voucher(self):
         from solution.planner import CompetitionPlanner
         from solution.state import WorldState
-        raw=RocketOperationsTests().scene(round_no=10)
+        raw=RocketOperationsTests().scene(round_no=69)
         raw['teamOur']['roles'][1].update(pos={'x':1,'y':1},backpack=['WeaponUpgradeVoucher1'])
         turn=Turn.from_raw(raw);state=WorldState();state.ingest(turn)
         intents=CompetitionPlanner._individual_recall(turn,state,DEFAULT_CONFIG)

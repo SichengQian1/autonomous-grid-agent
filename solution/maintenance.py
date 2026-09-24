@@ -4,13 +4,13 @@ from .actions import Action,ActionType
 from .movement import MoveIntent
 from .logistics import LogisticsPlan,estimated_max_health
 from .economy import front_walls,upgrade_item,wall_level_goal,due_defense_targets,scheduled_targets,front_wall_number
-from .defense import build_defense_layout
-from .grid import OccupancyGrid,interaction_cells,shortest_path
+from .defense import build_defense_layout, wall_support_post
+from .grid import OccupancyGrid,interaction_cells,shortest_path,distance_field
 from .geometry import Pos
 from .combat import ROBOT_ATTACK
 
 
-def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),committed_id=None):
+def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),helper=False):
     if not role.pos:return LogisticsPlan()
     from .wall_supply import wall_use_item, wall_target
     walls=front_walls(turn);due=due_defense_targets(turn,config)
@@ -25,7 +25,7 @@ def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),committed_i
     station=turn.team_our.station()
     if not station:return LogisticsPlan()
     cells=turn.coordinate_frame.normalize_cells(station.footprint())
-    post=turn.coordinate_frame.denormalize(Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+1))
+    post=wall_support_post(turn,config,helper=helper)
     rear=tuple(p for p in layout.controller_sites if p not in {r.pos for r in turn.controllable if r.unit_id!=role.unit_id})
     fallback=tuple(p for p in layout.rear_corridor if p not in {r.pos for r in turn.controllable if r.unit_id!=role.unit_id})
     def retreat(reason='wall_or_role_exposure_retreat'):return LogisticsPlan(move=MoveIntent(role.unit_id,fallback or rear,125),reason=reason,evidence=tuple((w.unit_id,w.health,s,inc) for _,_,s,w,_,_,inc in risks))
@@ -41,27 +41,46 @@ def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),committed_i
     if exposed(role.pos):return retreat('support_breach_exposure_retreat')
     danger=support_danger_cells(turn,barriers,threats,config)
     grid=replace(grid,blocked=grid.blocked|danger)
+    core=next((w for w in walls if front_wall_number(turn,w)==config.support_front_wall_number),None)
+    core_incoming=wall_damage_risk(core,config,threats)[1] if core else 0
+    home=distance_field(grid,(post,))
+    endpoints={}
     for wall in walls:
         immediate,approaching=wall_damage_risk(wall,config,threats)
         goals=tuple(p for p in interaction_cells(grid,wall.pos)
                     if turn.coordinate_frame.normalize(p).x<front and not exposed(p))
         path=shortest_path(grid,role.pos,goals) if role.pos.distance_to(wall.pos)>1 else [role.pos]
         steps=max(0,len(path)-1) if path else 10000
-        item=wall_use_item(turn,wall,role,config,approaching,steps,committed=wall.unit_id==committed_id)
+        if path:endpoints[wall.unit_id]=path[-1]
+        item=wall_use_item(turn,wall,role,config,approaching,steps)
         threshold=max(int(estimated_max_health(wall)*config.wall_heal_fraction),approaching*(steps+2))
         if not item and wall.health>threshold:continue
         headroom=wall.health/max(immediate,approaching,1)
         risks.append((headroom,wall.health,steps,wall,item,goals,approaching))
     endangered=False
-    for _,_,steps,wall,item,goals,incoming in sorted(risks,key=lambda x:(x[3].unit_id!=committed_id,*x[:3])):
+    first_deadline=min((r[0] for r in risks if r[4] and r[6]>0),default=float('inf'))
+    def priority(risk):
+        headroom,hp,steps,wall,item,goals,incoming=risk
+        if incoming>0 and hp<=incoming*(steps+2):return (0,headroom,0,hp,steps)
+        if incoming>0 and headroom<=first_deadline+config.support_upgrade_priority_slack:
+            return (1,int(wall.level<2),headroom,hp,steps)
+        if incoming>0:return (2,headroom,0,hp,steps)
+        return (3,int(wall.level<2),headroom,hp,steps)
+    for _,_,steps,wall,item,goals,incoming in sorted(risks,key=priority):
         if item:
             if role.pos.distance_to(wall.pos)<=1:
                 return LogisticsPlan(action=Action(role.unit_id,ActionType.USE,name=item,targets=(wall.pos,)),reason="wall_upgrade_heal" if item.startswith("WallUpgrade") else "wall_low_health_repair",evidence=(wall.unit_id,wall.health,steps,incoming,item))
             if steps<10000 and wall.health>incoming*(steps+1):
+                # Do not leave the core unattended longer than its observed
+                # damage estimate allows: outward walk, repair, return, margin.
+                away=steps+1+home.get(endpoints.get(wall.unit_id),10000)+1
+                if (core and core.unit_id!=wall.unit_id and core_incoming>0 and core.health<=core_incoming*away
+                        and wall.health>incoming*(steps+2)):
+                    continue
                 return LogisticsPlan(move=MoveIntent(role.unit_id,goals,122,avoid_cells=danger),reason="reachable_wall_rescue",evidence=(wall.unit_id,wall.health,steps,incoming,item))
         endangered |= wall.health<=max(int(estimated_max_health(wall)*config.wall_retreat_fraction),incoming*2)
     has_goods=any(x=='WallFixer' or x.startswith('WallUpgradeVoucher') for x in role.backpack)
-    if not has_goods:return retreat('support_no_repair_goods')
+    if not has_goods:return retreat()
     for _,_,steps,wall,item,_,incoming in risks:
         can_restore=('WallFixer' in role.backpack or
                      (wall.level<wall_target(turn,wall) and f'WallUpgradeVoucher{wall.level}' in role.backpack))
@@ -70,9 +89,13 @@ def support_plan(turn,role,config,threats,recent_damage=0,claimed=(),committed_i
     # Stay behind a live barrier while stocked. A remote doomed wall must not
     # make this protected worker bounce between rescue and the rear corridor.
     nearby=any(role.pos.distance_to(w.pos)<=1 for w in walls)
-    if nearby and not exposed(role.pos):
+    if role.pos==post and not exposed(role.pos):
         return LogisticsPlan(move=MoveIntent(role.unit_id,(role.pos,),100),reason='support_hold_protected',evidence=(('unreachable_wall_risk',endangered),))
     occupied={r.pos for r in turn.controllable if r.unit_id!=role.unit_id}
+    if post not in occupied and not exposed(post) and shortest_path(grid,role.pos,(post,)):
+        return LogisticsPlan(move=MoveIntent(role.unit_id,(post,),100,avoid_cells=danger),reason='support_return_to_post')
+    if nearby and not exposed(role.pos):
+        return LogisticsPlan(move=MoveIntent(role.unit_id,(role.pos,),100),reason='support_hold_protected',evidence=(('unreachable_wall_risk',endangered),))
     posts=tuple(p for p in (post,)+post.neighbours() if p not in occupied
                 and (grid.passable(p) or p==role.pos) and not exposed(p)
                 and turn.coordinate_frame.normalize(p).x<front)

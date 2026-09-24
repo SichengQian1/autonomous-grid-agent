@@ -5,6 +5,87 @@ change affects behavior, architecture, tests, assumptions, or the team workflow.
 Keep it public-safe: do not paste official text, private URLs, identifiers, or raw
 match logs here.
 
+## v0.21 scoped v0.18 baseline release (2026-09-24)
+
+The user requested a conservative release directly from the complete v0.18 source,
+then added the wall-three support adjustment. Work continues on codex/v0 after
+v0.20; historical commits and archives remain available. This is not v0.20 plus
+another strategy layer. The user's uncommitted AGENTS.md additions are preserved
+byte-for-byte and excluded from the release commit.
+
+Baseline verification:
+- v0.18 source commit: 8d1ca68274c5ce8d8e3761c4c7b5796e4868fa86.
+- Original archive SHA-256:
+  0582432f3988654fb1a0d9259a456bafc4746e7b412db014b248d3e8bcf5650d.
+- All forty v0.18 solution modules match that original archive. In v0.21, thirty-two
+  remain byte-identical. Only defense, economy, maintenance, planner, rules, travel,
+  wall_supply and the telemetry version identifier differ from v0.18.
+- In particular task solving, treasure interaction/purchase/recovery, combat, Bomb
+  logic, protocol, validation, engine, route safety and joint movement are v0.18.
+  The v0.19/v0.20 gate module and their version-specific tests are removed from the
+  active tree as part of the requested baseline restoration; Git history retains them.
+
+Three authorized changes:
+- Remove midpoint filtering from economic mining and engineer stone selection.
+  Continue ranking feasible routes by the existing v0.18 economy and safety rules;
+  no new distance cutoff, medicine policy or general worker recall is introduced.
+- From day three, time wall provisioning by the full vendor/sales/shop/purchase/
+  return route, including separate sale types, split repair orders and traffic
+  margin. Sell carried tradeable copper and iron before buying wall items; retain
+  stone and consumables. Do not trigger third-day morning wall shopping merely
+  because the whole basket is affordable. A started supply trip stays committed
+  through selling, shopping and return. Wait for funding only within the return
+  budget; never resume mining midway. Missing walls do not block late procurement.
+  Preserve v0.18 basket quantities and funding priorities; an optional Bomb may
+  still be bought at the same shop under the existing budget/return conditions.
+- Use the position behind front wall three as the engineer's default post.
+  Imminent collapse still wins; similar projected deadlines favor upgraded walls.
+  Before a non-imminent off-post repair, compare wall-three survival with outward
+  travel, repair, return and margin. Return to the post after remaining repair work;
+  occupied/unsafe posts retain safe waiting or retreat. The final-night helper
+  uses the adjacent wall-four post to avoid blocking the engineer's return and
+  still avoids already-claimed repair targets. Actual exposure/damage retreat and
+  upgrade-healing before repair packs remain at v0.18.
+
+Scope boundaries:
+- Five reserve stones; ordinary sixteen-wall ring and four open rear corridor cells.
+  No new rear shutters, demolition/passage sequence or seven-stone target.
+- Early repair target remains two, then six from day five and up to fifteen from
+  day six. No v0.19 early five-pack floor or persistent gun-development change.
+- Treasure offerings may be purchased from a partial material candidate, exactly
+  as v0.18; the later complete-candidate procurement gate is not carried forward.
+
+Verification on local exact Python 3.11.10:
+- 438 unittest cases and compileall pass. Sixteen new synthetic regressions cover
+  opposite-half resources, sale/purchase/return timing, helper stock, upgraded-wall
+  priority, emergency override, side-trip core protection and post return.
+  Two older test expectations are updated to the explicitly changed policies.
+- Both 1,300-turn synthetic runs report zero invalid responses, action drops,
+  simulated action failures or planner failures; each retains three weapons.
+- Source and clean archive each pass both-side 71-turn constrained-opening HTTP
+  checks: three rockets, at least ten walls and one controller covering all three.
+  Malformed JSON, null and array requests return the safe response.
+- Source and archive pass both-side day-six/day-ten sale, supply and return HTTP
+  cycles (eight 46-turn sequences), with legal simulated actions and matching
+  direct decisions. The helper and engineer can reach separate support positions.
+- Source/archive treasure HTTP checks retain v0.18 malformed-reply recovery,
+  partial-candidate buying, incremental information, opening, platform rejection
+  and encoded-log decoding. No real platform model was called.
+- Public file list/diff, archive allowlist and confidentiality checks reviewed.
+  Private materials, logs, cache files and AGENTS.md edits remain excluded.
+
+Artifact: submissions/v0/submission-v0.21.tar.gz.
+SHA-256: da758f1bd37477bf6d246706404a81fe3bf582ed2ecbbd51e2742b5817d4e5db.
+The package contains main3.py and forty solution modules only. Nineteen earlier
+release archive hashes are unchanged. No platform upload or match launch; no
+CentOS validation. Synthetic tests do not prove match score or survival gains.
+
+Next: compare actual cross-midline income, ore liquidation, dusk stocks/positions,
+wall-three losses during side trips, worker/base survival and score over multiple
+matches. Damage estimates can double-count a robot across walls. Repeated delayed
+returns, missed feasible income, or earlier critical-wall losses would contradict
+the current scheduling assumptions and require review before adding more strategy.
+
 ## v0.20 rear shutters and sale-before-wall-supply cycles (2026-09-24)
 
 Scope: user-approved two-cell rear closure, worker passage/resealing, seven-stone

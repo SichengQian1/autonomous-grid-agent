@@ -1,6 +1,5 @@
 """Conservative visible-robot exposure; never a claim of engine target knowledge."""
 from dataclasses import replace
-from heapq import heappop, heappush
 from .geometry import Pos
 from .grid import OccupancyGrid, shortest_path
 from .movement import MoveIntent
@@ -36,28 +35,7 @@ def escape_intent(turn, actor, config, danger):
     grid=OccupancyGrid.from_turn(turn,ignore_unit_ids=(actor.unit_id,))
     live=[r for r in turn.robots if r.health>0 and r.pos]
     def clearance(p):return min((p.distance_to(r.pos)-(r.attack_range or config.robot_attack_range_fallback) for r in live),default=100)
-    neighbours=grid.neighbours(actor.pos)
-    if not neighbours:return None
-    # Bounded escape through a plateau, with damage exposure as a cost. Only the
-    # first adjacent legal step is returned; re-evaluate live obstacles next turn.
-    def exposure(p):
-        return sum(max(r.attack_power,1) for r in live
-                   if p.distance_to(r.pos)<=(r.attack_range or config.robot_attack_range_fallback)+1)
-    queue=[(0,0,actor.pos.x,actor.pos.y,actor.pos,None)]
-    costs={actor.pos:(0,0)};candidates=[];visited=0
-    while queue and visited<config.escape_search_nodes:
-        cost,steps,_,_,pos,first=heappop(queue)
-        if costs.get(pos)!=(cost,steps):continue
-        visited+=1
-        if first is not None:
-            if pos not in danger:return MoveIntent(actor.unit_id,(first,),125)
-            candidates.append((clearance(pos),-cost,-steps,-pos.x,-pos.y,first))
-        if steps>=config.escape_search_depth:continue
-        for nxt in grid.neighbours(pos):
-            score=(cost+1+exposure(nxt),steps+1)
-            if score>=costs.get(nxt,(float('inf'),float('inf'))):continue
-            costs[nxt]=score
-            heappush(queue,(*score,nxt.x,nxt.y,nxt,first or nxt))
-    improving=[c for c in candidates if c[0]>clearance(actor.pos)]
-    if not improving:return None
-    return MoveIntent(actor.unit_id,(max(improving)[-1],),125)
+    options=[p for p in grid.neighbours(actor.pos) if clearance(p)>clearance(actor.pos)]
+    if not options:return None
+    best=max(options,key=lambda p:(p not in danger,clearance(p),-turn.coordinate_frame.normalize(p).x))
+    return MoveIntent(actor.unit_id,(best,),125)

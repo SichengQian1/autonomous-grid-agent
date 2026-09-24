@@ -1,12 +1,12 @@
 # Strategy
 
-The versioned sections below preserve historical decisions. Current v0.20 behavior
+The versioned sections below preserve historical decisions. Current v0.21 behavior
 is described in [the operating guide](operating-logic.md) and [HANDOFF](../HANDOFF.md).
-Treasure no longer requires multiple clue days or model-reported confidence: it
-delegates semantic interpretation to the model, checks output structure, and uses
-procurement only after a complete model candidate, bounded attempts, and confirmed
-nighttime guard handover. Mining is no longer restricted by a map half; every
-worker budgets a pre-night route to its defensive position or rear refuge. The repair corridor now has two level-one rear shutters, and wall procurement follows a latched vendor/supply/return cycle with seven-stone reserves.
+v0.21 uses the complete v0.18 baseline. Its changes are unrestricted map-half
+resource selection, sale-before-wall-supply trips timed to return before night,
+and a wall-three support post. Similar repair urgency favors upgraded walls;
+imminent collapse and actual worker danger retain priority. Treasure, task,
+combat, ore holding on days one/two and other recall behavior remain at v0.18.
 
 ## Global Objective
 
@@ -34,8 +34,9 @@ Use a lexicographic decision hierarchy:
 - Build all three weapon slots as early as safely possible.
 - v0.9 primary composition: three rocket launchers.
 - Keep two railguns and one rocket launcher as the first comparison.
-- Place three rockets in cells 14, 15 and 16, with one shared pioneer control post behind cell 15. Build the centre-front wall first, then front extensions and side walls.
-- Keep the gun post clear; close the two rear cells behind/left-below cannon 14 with level-one shutters after the ordinary ring is complete.
+- Place three rockets in cells 14, 15 and 16, with one shared pioneer control post
+  behind cell 15. Build the centre-front wall first, then front extensions and side walls.
+- Keep four permanent rear corridor cells open for role traffic.
 - Build weapons only one cell from the whole base footprint and walls only two
   cells away. These are distinct rings; moving a weapon farther behind the base
   cannot override its permitted building area.
@@ -43,7 +44,8 @@ Use a lexicographic decision hierarchy:
   other worker on income immediately. Collect an initial ten-stone batch and build before starting another batch;
   do not delay all walls while chasing a depleted mine for a sixteen-stone batch.
   Every wall must preserve structural access to control positions and living roles.
-- Workers remove their own shutter, cross and reseal by daylight. Budget every action, queue the final helper, and suspend opening when a visible enemy can contest the passage.
+- Do not dynamically remove and rebuild the opening in V1. Reconsider only if
+  platform evidence shows flanking or a changed spawn pattern.
 - Use tasks as a primary score and income engine when return-to-base safety permits.
 - `USER_OBSERVED`: after normalization, the primary robot threat is on the
   positive-x/front side; the fixed activity exit is on the negative-x/rear side.

@@ -49,7 +49,7 @@ The active V1 code loop is implemented:
 - side normalization and base-footprint geometry
 - occupied-cell modeling and bounded eight-direction pathfinding
 - conservative multi-role next-cell reservation
-- mirrored three-weapon layouts and observed-state rear shutter passage
+- mirrored three-weapon and fixed-rear-opening layouts
 - defense-aware economy, construction, upgrade, and recall planning
 - controller assignment, partial release, and projected-damage targeting
 - task, bounded LLM/sandbox, news, and structurally guarded treasure state
@@ -60,6 +60,8 @@ The active V1 code loop is implemented:
 Platform-dependent mechanics remain configurable and feedback-gated. Synthetic
 tests prove internal behavior only; practice telemetry is required for calibration.
 
+The v0.21 runtime restores v0.18 and changes only resource reachability, wall-supply scheduling, and the wall-support post/repair selection. `maintenance.py` shares the normalized wall-three post with `travel.py`, retains urgent rescue and exposure retreat, and budgets side-trip return against estimated core-wall survival.
+
 ## Active Modules
 
 - `grid.py`: occupancy and pathfinding
@@ -68,12 +70,9 @@ tests prove internal behavior only; practice telemetry is required for calibrati
 - `defense.py`: normalized threat geometry and fixed opening
 - `economy.py`: construction access checks, persistent mining/sale plans, and defense budget
 - `market.py`: current/future price separation and bounded official-news windows
-- `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use;
-  gun options are filtered only by deadlines owned by the gun/base buyer
-- `wall_supply.py`: latched ore liquidation, wall-supply and return cycles, initial repair stock and optional worker medicine
-- `wall_access.py`: normalized rear shutters, owned-wall passage, resealing and serialized worker access; virtual route estimates include removal/rebuild work while actual movement respects observed occupancy
-- `route_safety.py`: bounded escape search through equal-clearance cells;
-  `travel.py` budgets every worker's dusk return and keeps rear refuges off gun posts
+- `logistics.py`: persistent procurement baskets, delivery, critical repair and upgrade use
+- `wall_supply.py`: latched ore liquidation, wall purchases, return timing and final-helper stock
+- `maintenance.py`: wall-three engineer and adjacent helper posts, urgent rescue, upgraded-wall preference and return checks
 - `combat.py`: controller release and target allocation
 - `tasking.py`: task recovery and LLM/sandbox coordination
 - `treasure.py`: daily raw folklore, LLM contract, incremental candidates, structural checks and bounded expeditions

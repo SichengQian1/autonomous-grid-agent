@@ -67,7 +67,6 @@ class FundingTests(unittest.TestCase):
         raw=funded_shop();raw['teamOur']['goldNum']=249
         raw['weaponShopList'][1]['price']=200
         unit(raw,2)['backpack']=['WeaponUpgradeVoucher2']
-        unit(raw,1)['backpack']=['WallFixer']*5
         turn=Turn.from_raw(raw);plan=LogisticsManager(weapon_buyer_id=2).plan(turn,turn.team_our.unit(2),BUDGET,DEFAULT_CONFIG)
         self.assertEqual(plan.action.quantity,1)
 
@@ -76,8 +75,11 @@ class FundingTests(unittest.TestCase):
         turn=Turn.from_raw(raw);plan=LogisticsManager(weapon_buyer_id=2).plan(turn,turn.team_our.unit(2),BUDGET,DEFAULT_CONFIG)
         self.assertFalse(plan.action and plan.action.action_type=='buy')
 
-    def test_day_three_funded_wall_procurement_can_begin_early(self):
+    def test_day_three_funded_wall_procurement_waits_for_late_trip(self):
         raw=funded_shop();turn=Turn.from_raw(raw)
+        plan=wall_stock_plan(turn,turn.team_our.unit(1),BUDGET,DEFAULT_CONFIG)
+        self.assertFalse(plan.action or plan.move)
+        raw['roundNo']=310;turn=Turn.from_raw(raw)
         plan=wall_stock_plan(turn,turn.team_our.unit(1),BUDGET,DEFAULT_CONFIG)
         self.assertEqual(plan.action.name,'WallFixer')
 
@@ -225,8 +227,7 @@ class BombTests(unittest.TestCase):
         self.assertEqual(self.plan(raw)[0].reason,'no_surplus_or_capacity')
 
     def test_failed_purchase_is_not_repeated_same_day(self):
-        raw=self.daytime();raw['roundNo']=690  # Leave time for the rear shutter cycle.
-        plan,m,t=self.plan(raw);m.issued(t,plan.action)
+        raw=self.daytime();plan,m,t=self.plan(raw);m.issued(t,plan.action)
         raw['roundNo']+=1;t=replace(Turn.from_raw(raw),last_action_results={1:False});m.observe(t)
         self.assertFalse(m.result['success'])
         self.assertEqual(self.plan(raw,m)[0].reason,'bomb_already_purchased_or_carried')
@@ -262,7 +263,7 @@ class ThirdNightFlowTests(unittest.TestCase):
             raw['mapInfo']['zones']=[{'neutralType':'weaponShop','pos':shop.to_raw()}]
             unit(raw,2)['pos']=frame.denormalize(Pos(10,10)).to_raw()
             unit(raw,1)['pos']=frame.denormalize(Pos(10,11)).to_raw()
-            unit(raw,1)['backpack']=['stone']*5+['WallFixer']*5
+            unit(raw,1)['backpack']=['stone']*5
             unit(raw,7)['pos']=frame.denormalize(Pos(12,11)).to_raw()
             raw['teamOur']['goldNum']=175;engine=AgentEngine();uses=[];purchases=[]
             prices={i['name']:i['price'] for i in raw['weaponShopList']}

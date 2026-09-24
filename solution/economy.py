@@ -17,7 +17,6 @@ from .actions import Action, ActionType
 from .movement import MoveIntent
 from .travel import TravelBudget
 from .defense import own_threats, build_defense_layout
-from .wall_access import planning_grid, return_distances, gate_sites, inside
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,16 +145,6 @@ def defense_budget(
     return DefenseBudget(mandatory, emergency, offensive, margin)
 
 
-def weapon_stock_cost(turn: Turn, config: StrategyConfig) -> int:
-    """Unfunded battery upgrades, discounting usable vouchers held by living roles."""
-    goal=2 if turn.day_index<=config.ore_hold_days else 3
-    need=Counter(f'WeaponUpgradeVoucher{level}' for w in existing_weapons(turn)
-                 for level in range(max(w.level,1),goal))
-    owned=Counter(item for role in turn.controllable for item in role.backpack)
-    prices={item.name:item.price for item in turn.weapon_shop}
-    return sum(prices.get(name,100000)*quantity for name,quantity in (need-owned).items())
-
-
 def weapon_build_objectives(
     turn: Turn,
     layout: DefenseLayout,
@@ -202,14 +191,12 @@ def wall_build_objective(
 ) -> BuildObjective | None:
     if worker.backpack.count("stone") <= 0 or len(existing_walls(turn)) >= config.max_wall_count:
         return None
-    if worker.backpack.count('stone')<=1 and inside(turn,worker.pos) and any(w.pos in gate_sites(turn,config) for w in existing_walls(turn)):
-        return None
     standing = {wall.pos for wall in existing_walls(turn)}
     occupied = {
         cell for unit in turn.team_our.roles + turn.team_enemy.roles for cell in unit.footprint()
     }
     reserved = reserved_sites or set()
-    grid = planning_grid(turn,worker,config)
+    grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
     distances = distance_field(grid,(worker.pos,)) if worker.pos is not None else {}
     station = turn.team_our.station()
     front = max((layout.frame.normalize(p).x for p in station.footprint()),default=0)+2 if station else 0
@@ -226,19 +213,18 @@ def wall_build_objective(
             and site not in state.failed_build_sites
             and site not in reserved
             and any(p in distances for p in interaction_cells(grid,site))
-            and wall_preserves_access(turn, layout, site, reserved,config)
+            and wall_preserves_access(turn, layout, site, reserved)
         ):
             return BuildObjective(ROLE_WALL, site, 70 - index)
     return None
 
 
-def wall_preserves_access(turn: Turn, layout: DefenseLayout, site: Pos, reserved: set[Pos],config=None) -> bool:
+def wall_preserves_access(turn: Turn, layout: DefenseLayout, site: Pos, reserved: set[Pos]) -> bool:
     """Reject a wall that seals a control cell or a living role into a pocket."""
     if layout.rear_exit is None:
         return False
     grid = OccupancyGrid.from_turn(turn, ignore_unit_ids=tuple(r.unit_id for r in turn.controllable))
     blocked = grid.blocked | set(layout.weapon_sites[:3]) | reserved | {site}
-    if config:blocked-=set(gate_sites(turn,config))
     reachable = distance_field(OccupancyGrid(grid.width, grid.height, frozenset(blocked)), (layout.rear_exit,))
     required = list(layout.controller_sites)
     required.extend(r.pos for r in turn.controllable if r.pos is not None and r.pos not in blocked)
@@ -300,23 +286,15 @@ class EconomyManager:
     def plan(self, turn: Turn, worker: Unit, state: WorldState, config: StrategyConfig, budget: DefenseBudget) -> EconomyPlan:
         if worker.pos is None:
             return EconomyPlan()
-        travel = TravelBudget.for_role(turn,worker,config,wall_support=worker.unit_id in self.returning_roles,
-                                       worker_refuge=worker.unit_id not in self.returning_roles)
+        travel = TravelBudget.for_role(turn,worker,config,must_return=worker.unit_id in self.returning_roles,wall_support=worker.unit_id in self.returning_roles)
         grid,danger=safe_grid(turn,config,self.previous_robots)
-        grid=planning_grid(turn,worker,config,grid)
         travel.grid=grid
-        if travel.daytime:travel.home=return_distances(turn,grid,travel.goals,config)
+        if travel.daytime:travel.home=distance_field(grid,travel.goals)
         threats=tuple(r for r in turn.robots if r.health>0) if not turn.is_day else ()
         self.evidence[worker.unit_id]={'danger_cells':len(danger),'return_required':travel.daytime,'day_three_release':turn.day_index==3}
         if worker.pos in danger:
             self.activity[worker.unit_id]='retreat_from_robot'
             return EconomyPlan(move=escape_intent(turn,worker,config,danger))
-        if turn.is_day and travel.cost()+travel.margin>=travel.remaining:
-            self.activity[worker.unit_id]='worker_safety_return'
-            return EconomyPlan(move=MoveIntent(worker.unit_id,travel.goals,119))
-        if 'Medicine' in worker.backpack and worker.health<=config.worker_heal_health:
-            self.activity[worker.unit_id]='worker_recovery'
-            return EconomyPlan(action=Action(worker.unit_id,ActionType.USE,name='Medicine'))
         if not turn.is_day and state.night_role_pauses.get(worker.unit_id,0)>turn.round_no:
             self.activity[worker.unit_id]='bounded_night_failure_pause'
             return EconomyPlan()
@@ -435,7 +413,7 @@ class EconomyManager:
         if best is None:
             self.mines.pop(worker.unit_id,None)
             self.activity[worker.unit_id]="no_complete_income_trip"
-            return EconomyPlan(move=MoveIntent(worker.unit_id,travel.goals,30)) if turn.is_day else EconomyPlan()
+            return EconomyPlan()
         previous=next((item for item in ranked if item[1].pos==previous_pos),None)
         if previous is not None and previous[0]*1.2>=best[0]:best=previous
         rate,zone,goals=best;self.mines[worker.unit_id]=zone.pos

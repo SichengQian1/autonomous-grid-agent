@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from .evidence import EvidenceLevel
 from .geometry import CoordinateFrame, Pos
 from .models import Robot, Turn, Unit
-from .rules import ROLE_WALL, WEAPON_ROLE_TYPES
+from .rules import ROLE_WALL, WEAPON_ROLE_TYPES, StrategyConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +96,15 @@ def build_defense_layout(turn: Turn, *, conservative: bool = False) -> DefenseLa
         controller_sites=controller_sites,
         threat_evidence=EvidenceLevel.USER_OBSERVED,
     )
+
+
+def wall_support_post(turn: Turn, config: StrategyConfig, *, helper=False) -> Pos | None:
+    station=turn.team_our.station()
+    if not station:return None
+    cells=turn.coordinate_frame.normalize_cells(station.footprint())
+    number=max(1,min(6,config.support_front_wall_number))
+    if helper:number=number+1 if number<6 else number-1
+    return turn.coordinate_frame.denormalize(Pos(max(p.x for p in cells)+1,max(p.y for p in cells)+3-number))
 
 
 def own_threats(turn: Turn) -> tuple[Robot, ...]:

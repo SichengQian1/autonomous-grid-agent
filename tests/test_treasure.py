@@ -108,10 +108,10 @@ class MinimalContractTests(unittest.TestCase):
         k.prompt(); ingest(k, answer(k, mode=['bad']))
         self.assertEqual(k.mode, 'unknown'); self.assertTrue(k.complete)
 
-    def test_unknown_keeps_facts_but_defers_purchase_and_opening(self):
+    def test_unknown_keeps_facts_and_preparation_but_defers_opening_to_model(self):
         t,k,d=prepared();d['mode']='unknown';ingest(k,d)
         self.assertTrue(k.complete)
-        self.assertIsNone(k.plan(t,t.team_our.unit(2),DEFAULT_CONFIG,1000).action)
+        self.assertEqual(k.plan(t,t.team_our.unit(2),DEFAULT_CONFIG,1000).action.name,'BlueLamp')
         pioneer=replace(t.team_our.unit(2),backpack=('BlueLamp','BlueLamp'))
         self.assertFalse(k.can_attempt(t,pioneer,DEFAULT_CONFIG))
         k.prompt();ingest(k,{'request_id':k.request_id,'mode':'treasure'})
@@ -220,12 +220,10 @@ class ExecutionTests(unittest.TestCase):
         self.assertIsNone(k.plan(replace(t, round_no=71), p, DEFAULT_CONFIG, 1000).action)
         self.assertEqual(k.reason, 'window_expired')
 
-    def test_partial_preparation_waits_then_complete_candidate_uses_shop(self):
+    def test_partial_preparation_and_shop_interaction(self):
         t, k, d = prepared(); d.update(location=None, window=None); ingest(k, d)
         plan = k.plan(t, t.team_our.unit(2), DEFAULT_CONFIG, 1000)
-        self.assertFalse(plan.action or plan.move); self.assertFalse(k.complete)
-        k.prompt();ingest(k,answer(k))
-        self.assertEqual(k.plan(t,t.team_our.unit(2),DEFAULT_CONFIG,1000).action.name,'BlueLamp')
+        self.assertEqual(plan.action.name, 'BlueLamp'); self.assertFalse(k.complete)
         p = replace(t.team_our.unit(2), pos=Pos(14, 12))
         plan = k.plan(t, p, DEFAULT_CONFIG, 1000)
         self.assertIsNone(plan.action); self.assertIsNotNone(plan.move)
@@ -358,8 +356,8 @@ class EngineTests(unittest.TestCase):
         raw['roundNo']+=1;raw['llmResp']='{ broken';response=engine.decide(raw)
         self.assertIn('prompt',response);self.assertEqual(k.last_validation_failure['reason'],'invalid_json_schema')
         raw['roundNo']+=1;raw['llmResp']=json.dumps(answer(k,location=None,window=None))
-        response=engine.decide(raw);self.assertNotEqual(response['roleCommandMap'].get('2',{}).get('action'),'buy')
-        raw['roundNo']+=1;raw['llmResp']=''
+        response=engine.decide(raw);self.assertEqual(response['roleCommandMap']['2']['name'],'BlueLamp')
+        unit(raw,2)['backpack']=['BlueLamp']*2;raw['roundNo']+=1;raw['llmResp']=''
         raw['worldNews']['folkLegends']='后续线索来了，但尚不知道祭坛在哪。';response=engine.decide(raw)
         self.assertIn('prompt',response);raw['roundNo']+=1;raw['llmResp']=json.dumps({'request_id':k.request_id,'mode':'unknown'})
         response=engine.decide(raw);self.assertEqual(k.materials,{'BlueLamp':2})
@@ -369,13 +367,11 @@ class EngineTests(unittest.TestCase):
     def test_continuous_new_clues_with_delayed_replies_do_not_stall(self):
         engine=AgentEngine();raw=public_world();engine.decide(raw);k=engine.planner.treasure
         raw['roundNo']+=1;raw['llmResp']=json.dumps(answer(k,location=None,window=None));raw['worldNews']['folkLegends']='又来一条消息。'
-        response=engine.decide(raw);self.assertNotEqual(response['roleCommandMap'].get('2',{}).get('action'),'buy')
-        raw['roundNo']+=1;raw['llmResp']=json.dumps(answer(k,materials=None));raw['worldNews']['folkLegends']='今天还有补充。'
         response=engine.decide(raw);self.assertEqual(response['roleCommandMap']['2']['action'],'buy')
-        self.assertGreater(k.version,k.analyzed_version)
         unit(raw,2)['backpack']=['BlueLamp']*2
-        raw['roundNo']+=1;raw['llmResp']=''
+        raw['roundNo']+=1;raw['llmResp']=json.dumps(answer(k,materials=None));raw['worldNews']['folkLegends']='今天还有补充。'
         response=engine.decide(raw);self.assertEqual(response['roleCommandMap']['2']['action'],'summonTreasure')
+        self.assertGreater(k.version,k.analyzed_version)
 
     def test_wrong_request_cannot_purchase_and_diagnostic_persists(self):
         engine=AgentEngine();raw=public_world();engine.decide(raw);k=engine.planner.treasure

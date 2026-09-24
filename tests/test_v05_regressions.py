@@ -32,7 +32,7 @@ def developed():
 
 
 class V05RegressionTests(unittest.TestCase):
-    def test_cross_midline_income_competes_on_complete_trip_value(self):
+    def test_cross_midline_windfall_is_compared_by_income_trip(self):
         raw=developed()
         raw['teamOur']['roles'][0]['pos']={'x':4,'y':4}
         raw['mapInfo']['zones']=[{'neutralType':'iron','pos':{'x':3,'y':4}},
@@ -50,8 +50,7 @@ class V05RegressionTests(unittest.TestCase):
             manager=EconomyManager()
             result=manager.plan(turn,turn.team_our.unit(1),state,DEFAULT_CONFIG,DefenseBudget(0,25,0,10))
             self.assertIsNotNone(result.move)
-            expected={'x':23,'y':4} if side=='challenger' else {'x':6,'y':13}
-            self.assertEqual(manager.mines[1].to_raw(),expected)
+            self.assertEqual(manager.evidence[1]['ore'],'copper')
 
     def test_distant_recall_does_not_stop_nearby_wall_builder(self):
         raw=developed(); raw['roundNo']=52

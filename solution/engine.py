@@ -92,10 +92,6 @@ class AgentEngine:
                     diagnostics={
                         "operationLogDropped": self.operations.dropped,
                         "supportWorker": self.planner.support_id,
-                        "supportTargets": self.planner.support_targets,
-                        "wallAccess": self.planner.wall_access.status,
-                        "wallSupplyActive": sorted(self.planner.wall_cycle.active),
-                        "visibleEnemyHumans": [[u.role_type,u.pos.x,u.pos.y] for u in turn.team_enemy.roles if u.is_human and u.alive and u.pos][:3],
                         "wallSupply": self.planner.wall_supply_status,
                         "surplusBomb": self.planner.surplus_bomb.status,
                         "bombResult": self.planner.surplus_bomb.result,
